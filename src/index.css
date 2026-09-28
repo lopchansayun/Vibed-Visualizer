@@ -1,0 +1,95 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  --color-bg: #14161a;
+  --color-bg-soft: #191c21;
+  --color-panel: #1c1f25;
+  --color-panel-raised: #21252c;
+  --color-border: #2b2f38;
+  --color-border-soft: #23262d;
+  --color-text: #e7e9ec;
+  --color-text-muted: #8b909c;
+  --color-text-faint: #5c6270;
+
+  --color-amber: #e0a94d;
+  --color-amber-soft: #e0a94d1a;
+  --color-green: #6fbf8b;
+  --color-green-soft: #6fbf8b1a;
+  --color-red: #e06a63;
+  --color-red-soft: #e06a631a;
+  --color-blue: #6ea8e0;
+  --color-blue-soft: #6ea8e01a;
+
+  --radius-panel: 0.5rem;
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+  html.light {
+    color-scheme: light;
+  }
+
+  html.light {
+    --color-bg: #f6f5f2;
+    --color-bg-soft: #efeee9;
+    --color-panel: #ffffff;
+    --color-panel-raised: #fbfaf8;
+    --color-border: #ddd9d0;
+    --color-border-soft: #e6e3db;
+    --color-text: #23262b;
+    --color-text-muted: #6b6f78;
+    --color-text-faint: #9a9ea6;
+
+    --color-amber: #b3791f;
+    --color-amber-soft: #b3791f14;
+    --color-green: #3f8f5f;
+    --color-green-soft: #3f8f5f14;
+    --color-red: #c14a42;
+    --color-red-soft: #c14a4214;
+    --color-blue: #3d6fb0;
+    --color-blue-soft: #3d6fb014;
+  }
+
+  body {
+    background-color: var(--color-bg);
+    color: var(--color-text);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::selection {
+    background-color: var(--color-amber-soft);
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-border) transparent;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-blue);
+    outline-offset: 1px;
+  }
+}
+
+.codeviz-current-line {
+  background-color: var(--color-amber-soft) !important;
+  border-left: 2px solid var(--color-amber);
+}
+.codeviz-current-line-glyph {
+  background-color: var(--color-amber);
+  width: 4px !important;
+  margin-left: 4px;
+}
+
+@layer utilities {
+  .font-mono-tight {
+    font-family: var(--font-mono);
+    letter-spacing: -0.01em;
+  }
+}
