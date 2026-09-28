@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { persist, createJSONStorage } from 'zustand/middleware'
 import { DEFAULT_CODE } from '../config/languages'
 
 const THEME_KEY = 'vibedvisualizer-theme'
@@ -9,10 +10,17 @@ const getInitialTheme = () => {
   return window.matchMedia?.('(prefers-color-scheme: light)').matches ? 'light' : 'dark'
 }
 
-export const useEditorStore = create((set, get) => ({
+export const useEditorStore = create(
+  persist((set, get) => ({
   // language + code
-  language: 'cpp',
+  language: 'c',
   code: { ...DEFAULT_CODE },
+  files: {
+    c: [{ name: 'main.c', content: DEFAULT_CODE.c }],
+    cpp: [{ name: 'main.cpp', content: DEFAULT_CODE.cpp }],
+    csharp: [{ name: 'Program.cs', content: DEFAULT_CODE.csharp }],
+  },
+  activeFile: { c: 'main.c', cpp: 'main.cpp', csharp: 'Program.cs' },
   input: '',
 
   setLanguage: (language) =>
@@ -21,14 +29,43 @@ export const useEditorStore = create((set, get) => ({
       visualizerOpen: language === 'c' ? state.visualizerOpen : false,
       // keep any edits the user already made per-language
     })),
-  setCode: (code) =>
-    set((state) => ({
-      code: { ...state.code, [state.language]: code },
-    })),
-  resetCode: () =>
-    set((state) => ({
-      code: { ...state.code, [state.language]: DEFAULT_CODE[state.language] },
-    })),
+  setCode: (code) => set((state) => {
+    const language = state.language
+    const active = state.activeFile[language]
+    const files = (state.files[language] || []).map((file) => file.name === active ? { ...file, content: code } : file)
+    return { code: { ...state.code, [language]: code }, files: { ...state.files, [language]: files } }
+  }),
+  createFile: (name, content = '') => set((state) => {
+    const language = state.language
+    const trimmed = String(name || '').trim()
+    if (!trimmed) return {}
+    const ext = `.${language === 'csharp' ? 'cs' : language}`
+    const safeName = /\.[A-Za-z0-9]+$/.test(trimmed) ? trimmed : `${trimmed}${ext}`
+    if ((state.files[language] || []).some((f) => f.name === safeName)) return {}
+    const files = [...(state.files[language] || []), { name: safeName, content: String(content) }]
+    return { files: { ...state.files, [language]: files }, activeFile: { ...state.activeFile, [language]: safeName }, code: { ...state.code, [language]: String(content) } }
+  }),
+  switchFile: (name) => set((state) => {
+    const language = state.language
+    const file = (state.files[language] || []).find((f) => f.name === name)
+    return file ? { activeFile: { ...state.activeFile, [language]: name }, code: { ...state.code, [language]: file.content } } : {}
+  }),
+  closeFile: (name) => set((state) => {
+    const language = state.language
+    const files = state.files[language] || []
+    if (files.length <= 1) return {}
+    const nextFiles = files.filter((f) => f.name !== name)
+    const active = state.activeFile[language] === name ? nextFiles[0].name : state.activeFile[language]
+    const activeContent = nextFiles.find((f) => f.name === active)?.content || ''
+    return { files: { ...state.files, [language]: nextFiles }, activeFile: { ...state.activeFile, [language]: active }, code: { ...state.code, [language]: activeContent } }
+  }),
+  resetCode: () => set((state) => {
+    const language = state.language
+    const active = state.activeFile[language]
+    const content = DEFAULT_CODE[language]
+    const files = (state.files[language] || []).map((file) => file.name === active ? { ...file, content } : file)
+    return { code: { ...state.code, [language]: content }, files: { ...state.files, [language]: files } }
+  }),
   setInput: (input) => set({ input }),
 
   // compilation / run state
@@ -76,4 +113,17 @@ export const useEditorStore = create((set, get) => ({
       if (typeof window !== 'undefined') window.localStorage.setItem(THEME_KEY, next)
       return { theme: next }
     }),
-}))
+  }),
+  {
+    name: 'vibedvisualizer-editor-state',
+    storage: createJSONStorage(() => localStorage),
+    version: 1,
+    partialize: (state) => ({
+      language: state.language,
+      code: state.code,
+      files: state.files,
+      activeFile: state.activeFile,
+      input: state.input,
+    }),
+  }
+))

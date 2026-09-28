@@ -93,3 +93,24 @@
     letter-spacing: -0.01em;
   }
 }
+
+
+/* Interactive controls should consistently advertise that they are clickable. */
+button:not(:disabled),
+[role="button"]:not([aria-disabled="true"]),
+.monaco-editor .button:not(.disabled) {
+  cursor: pointer;
+}
+
+/* Keep Monaco Find/Replace controls and their hover tooltips above surrounding panels.
+ * The app uses overflow-hidden panel containers, so fixedOverflowWidgets (above)
+ * plus an explicit stacking order prevents the tooltip from flickering underneath
+ * the Find widget when hovering controls such as the close button. */
+.monaco-editor .find-widget {
+  z-index: 100 !important;
+}
+
+.monaco-editor .monaco-editor-hover,
+.monaco-editor-hover {
+  z-index: 1000 !important;
+}

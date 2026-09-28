@@ -472,6 +472,24 @@ class Parser {
   binary(next,ops) { let left=next.call(this); while(ops.includes(this.peek().value)){const op=this.take().value; const right=next.call(this); left={type:'binary',op,left,right}} return left }
   parseUnary() {
     const line=this.line(); const v=this.peek().value
+    // C sizeof(type) / sizeof(expression). Keeping this as an AST node lets
+    // the runtime use the same type-size model as typed heap allocations.
+    if (v === 'sizeof') {
+      this.take()
+      this.expect('(')
+      const save = this.i
+      let typeParts = []
+      while (this.peek().type === 'id' || this.is('*')) {
+        typeParts.push(this.take().value)
+      }
+      if (this.eat(')') && typeParts.length) {
+        return {type:'sizeof', dataType:typeParts.join(' '), line}
+      }
+      this.i = save
+      const expr = this.parseExpression()
+      this.expect(')')
+      return {type:'sizeof', expr, line}
+    }
     if (['!','-','+','~','&','*','++','--'].includes(v)) { this.take(); return {type:'unary',op:v,expr:this.parseUnary(),line} }
     if (this.is('(') && this.peek(1).type==='id' && (TYPES.has(this.peek(1).value) || this.peek(1).value==='unsigned' || this.peek(1).value==='signed')) {
       const save=this.i; this.take(); let parts=[]; while(this.peek().type==='id' || this.is('*')) parts.push(this.take().value); if(this.eat(')')) return {type:'cast',dataType:parts.join(' '),expr:this.parseUnary()}; this.i=save

@@ -14,16 +14,13 @@ npm run dev
 ## Architecture
 
 - `src/services/compilerService.js` — the frontend's compiler API contract
-  (`compileAndRun({ language, code, stdin })`). This is currently a **mock**:
-  there is no sandboxed backend here, and compiling arbitrary C/C++/C#
-  safely requires one (a containerized compiler service). Swap this file's
-  internals for a real `fetch()` call once that backend exists — the
-  response shape is already the contract the UI expects.
-- `src/services/interpreter.js` — a small line-based interpreter for a
-  controlled subset of C/C++/C# (declarations, assignment, arithmetic,
-  if/else, for/while, print statements). It powers both the mock compiler's
-  stdout and the visualizer's step trace for the demo. It is not a real
-  compiler or debugger.
+  (`compileAndRun({ language, code, stdin })`). C, C++, and C# are compiled and
+  executed through the sandboxed Judge0 runtime. The local interpreter is kept
+  separate for source-level visualization and is not used as the authoritative
+  compiler.
+- `src/services/interpreter.js` — a small educational interpreter used by the
+  source-level visualizer. It supports a controlled subset of C/C++/C# for
+  tracing and is intentionally not used as the real compiler/runtime.
 - `src/services/visualizerService.js` — builds the execution trace consumed
   by the visualizer, kept independent of `compilerService` so a real
   instrumentation/debugging backend can replace it later without touching
@@ -68,3 +65,17 @@ reporting a misleading trace error.
   side effects (e.g. a function that mutates a value through a pointer)
   won't show that effect in the trace. Only `main()`'s body is
   interpreted; there's no real multi-frame call stack yet.
+
+## Multi-file C/C++ projects
+
+Create additional source/header files from the editor's **New** tab action. The Run action treats `main.c` / `main.cpp` as the entry source and sends the whole project to Judge0 as `additional_files`. Other `.c`/`.cpp` translation units are passed to the compiler, while `.h` files are available to normal `#include` directives.
+
+Example:
+
+```text
+main.c
+math.c
+math.h
+```
+
+`main.c` can use `#include "math.h"` and call functions implemented in `math.c`.

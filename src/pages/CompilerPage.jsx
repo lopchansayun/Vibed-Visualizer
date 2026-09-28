@@ -11,18 +11,21 @@ export default function CompilerPage() {
 
   const run = useCallback(async ({ withVisualizer }) => {
     const token = ++runTokenRef.current
-    const { language, code, input, setStatus, setOutput, setActiveConsoleTab, setTrace } = useEditorStore.getState()
+    const { language, code, files, input, setStatus, setOutput, setActiveConsoleTab, setTrace } = useEditorStore.getState()
     // Always open the console when execution starts.
     useEditorStore.setState({ consoleOpen: true })
-    const source = code[language]
-    const visualizationAvailable = language === 'c'
+    const projectFiles = files[language] || []
+    const entryName = language === 'c' ? 'main.c' : language === 'cpp' ? 'main.cpp' : 'Program.cs'
+    const entryFile = projectFiles.find((f) => f.name === entryName) || projectFiles[0]
+    const source = entryFile?.content || code[language]
+    const visualizationAvailable = language === 'c' && projectFiles.some((file) => file.name.endsWith('.c'))
 
     setActiveConsoleTab('output')
     setStatus('compiling')
 
     let result
     try {
-      result = await compileAndRun({ language, code: source, stdin: input })
+      result = await compileAndRun({ language, code: source, files: files[language], stdin: input })
     } catch {
       if (runTokenRef.current !== token) return
       setStatus('network-error')
@@ -53,7 +56,7 @@ export default function CompilerPage() {
         return
       }
       try {
-        const trace = await buildExecutionTrace({ language, code: source, stdin: input })
+        const trace = await buildExecutionTrace({ language, code: source, files: projectFiles, stdin: input })
         if (runTokenRef.current !== token) return
         setTrace(trace)
         if (!trace.available) toast('Program ran, but this source is outside the visualizer subset.', { icon: 'ℹ️' })

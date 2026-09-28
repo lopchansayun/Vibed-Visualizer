@@ -14,7 +14,7 @@ export default function IconButton({ icon: Icon, label, onClick, active, disable
       aria-label={label}
       onClick={onClick}
       disabled={disabled}
-      className={`inline-flex items-center gap-1.5 rounded-md border border-transparent px-2.5 py-1.5 text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+      className={`inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-transparent px-2.5 py-1.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
         active ? 'bg-panel-raised text-text border-border' : ''
       } ${variants[variant]} ${className}`}
     >

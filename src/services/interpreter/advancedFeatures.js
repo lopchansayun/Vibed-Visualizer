@@ -64,10 +64,29 @@ function normalizeStructuredBindings(code) {
 }
 
 function normalizeFunctionPointerDeclarations(code) {
-  let out = code.replace(
-    /\b(?:const\s+)?(?:void|bool|char|short|int|long|float|double|auto|[A-Za-z_]\w*(?:::\w+)*)\s*\(\s*\*\s*([A-Za-z_]\w*)\s*\)\s*\([^;{}]*\)\s*=\s*([^;]+);/g,
+  // The educational parser models callable values as lightweight function
+  // references. Normalize C function-pointer declarations into ordinary
+  // variables so the declaration grammar does not need a full declarator
+  // implementation.
+  let out = String(code || '')
+
+  // int (*operation)(int, int) = add;  ->  auto operation = add;
+  // void (*operation)(void) = NULL;     ->  auto operation = NULL;
+  out = out.replace(
+    /\b(?:const\s+)?(?:void|bool|char|short|int|long|float|double|auto|[A-Za-z_]\w*(?:::\w+)*)\s*\(\s*\*\s*([A-Za-z_]\w*)\s*\)\s*\([^;{}]*\)\s*=\s*([^;{}]+);/g,
     'auto $1 = $2;',
   )
+
+  // int (*operation)(int, int); -> auto operation = NULL;
+  // Initializing to zero gives the visualizer an explicit null callable until
+  // the program assigns a real function to it.
+  out = out.replace(
+    /\b(?:const\s+)?(?:void|bool|char|short|int|long|float|double|auto|[A-Za-z_]\w*(?:::\w+)*)\s*\(\s*\*\s*([A-Za-z_]\w*)\s*\)\s*\([^;{}]*\)\s*;/g,
+    'auto $1 = NULL;',
+  )
+
+  // Keep the older compatibility rewrite for a few declaration forms emitted
+  // by C++-style syntax normalizers.
   out = out.replace(/\(\s*([A-Za-z_]\w*)\s*\(\s*\*\s*([A-Za-z_]\w*)\s*\)\s*\([^)]*\)/g, '($1 $2')
   return out
 }

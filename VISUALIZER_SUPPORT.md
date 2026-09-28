@@ -78,3 +78,17 @@ See `examples/support-tests/advanced/`:
 - `lambdas.cpp`
 - `templates.cpp`
 - `virtual_multiple_inheritance.cpp`
+## Advanced C support added
+
+The native C visualizer now supports these additional constructs:
+
+- `union` declarations and member access, including `typedef union { ... } Name;`
+- Function-pointer declarations such as `int (*operation)(int, int);`
+- Function-pointer assignment and invocation, e.g. `operation = add; operation(1, 2);`
+- `sizeof(type)` and `sizeof(expression)` for the visualizer's type-size model
+- Heap-pointer aliasing (`int *a = malloc(...); int *b = a;`)
+- Freed-memory tracking through aliases; dereferencing an alias after `free()` reports a use-after-free error
+- Null function-pointer calls are detected explicitly instead of being reported as an unrelated unsupported function
+
+These features are implemented in the educational interpreter used for visualization. Judge0 remains responsible for actual C compilation/execution.
+
