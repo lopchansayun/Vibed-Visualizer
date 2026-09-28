@@ -128,6 +128,8 @@ function normalizeLambdaRefAccess(code) {
   return code
 }
 
+export { normalizeFunctionPointerDeclarations }
+
 export function normalizeAdvancedCpp(code) {
   let out = String(code || '')
   out = normalizeTemplateFunctions(out)

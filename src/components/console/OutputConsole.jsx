@@ -120,7 +120,7 @@ export default function OutputConsole() {
                 <span>Memory: {(output.memory / 1024).toFixed(1)} MB</span>
                 <span>Exit code: {output.exitCode}</span>
                 {output.engine && (
-                  <span>Engine: {output.engine === 'judge0' ? 'Judge0' : 'Mock'}</span>
+                  <span>Engine: {output.engine === 'judge0' ? 'Judge0' : output.engine === 'native-c' ? 'Native C' : output.engine}</span>
                 )}
               </div>
             )}

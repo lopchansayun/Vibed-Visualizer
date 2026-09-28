@@ -130,13 +130,25 @@ export async function compileAndRun({ language, code, stdin = '' }) {
       exitCode: 1, executionTime: 0, memory: 0, engine: 'local',
     }
   }
-  if (canAttemptMock(code, stdin)) {
-    const mockResult = mockResultFromInterpreter({ language, code, stdin, start })
-    if (mockResult.success) return mockResult
-    if (!mockResult.mockUnsupported) return mockResult
+
+  // Only C uses the native educational interpreter. C++ and C# always use
+  // Judge0 for real compiler/runtime behavior and never enter the mock engine.
+  if (language === 'c') {
+    if (canAttemptMock(code, stdin)) {
+      const result = mockResultFromInterpreter({ language, code, stdin, start })
+      return { ...result, engine: 'native-c' }
+    }
+    return {
+      success: false, stdout: '',
+      stderr: `${fileNameFor(language)}: error: source exceeds the native C interpreter limits.`,
+      exitCode: 1, executionTime: Math.round(performance.now() - start),
+      memory: 0, engine: 'native-c', mockError: true,
+    }
   }
-  try { return await runWithJudge0({ language, code, stdin, start }) }
-  catch (err) {
+
+  try {
+    return await runWithJudge0({ language, code, stdin, start })
+  } catch (err) {
     return {
       success: false, stdout: '', stderr: `Judge0 error: ${err.message}`,
       exitCode: 1, executionTime: Math.round(performance.now() - start),

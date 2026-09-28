@@ -15,7 +15,7 @@ export default function Header({ onRun, onRunAndVisualize, onStop, onReset }) {
   const toggleConsole = useEditorStore((s) => s.toggleConsole)
 
   const isBusy = status === 'compiling' || status === 'running'
-  const visualizationAvailable = language !== 'csharp'
+  const visualizationAvailable = language === 'c'
 
   return (
     <header className="flex min-h-13 shrink-0 items-center gap-1.5 overflow-hidden border-b border-border bg-bg-soft px-2 py-2 sm:gap-3 sm:px-3">
@@ -49,11 +49,11 @@ export default function Header({ onRun, onRunAndVisualize, onStop, onReset }) {
         />
         <IconButton
           icon={GitBranch}
-          label={visualizationAvailable ? 'Visualize' : 'Visualization not available for C#'}
+          label={visualizationAvailable ? 'Visualize' : 'Visualization only available for C'}
           active={visualizerOpen}
           onClick={onRunAndVisualize}
           disabled={isBusy || !visualizationAvailable}
-          title={visualizationAvailable ? 'Visualize execution' : 'Visualization not available for C#'}
+          title={visualizationAvailable ? 'Visualize C execution' : 'Visualization only available for C'}
           showLabel={false}
         />
         <span className="hidden sm:inline-flex"><IconButton icon={RotateCcw} label="Reset" onClick={onReset} showLabel={false} /></span>
@@ -77,7 +77,7 @@ export default function Header({ onRun, onRunAndVisualize, onStop, onReset }) {
         onClick={visualizationAvailable ? toggleVisualizer : undefined}
         aria-pressed={visualizerOpen}
         disabled={!visualizationAvailable}
-        title={visualizationAvailable ? 'Show or hide visualizer' : 'Visualization not available for C#'}
+        title={visualizationAvailable ? 'Show or hide visualizer' : 'Visualization only available for C'}
         className="flex h-8 shrink-0 items-center gap-1 rounded-md border border-border px-2 text-[11px] font-medium text-text-muted hover:text-text sm:px-2.5 sm:text-xs"
       >
         <GitBranch size={13} />

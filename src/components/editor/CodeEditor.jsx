@@ -15,6 +15,7 @@ export default function CodeEditor({ onRun, onRunAndVisualize }) {
   const decorationsRef = useRef([])
 
   const currentLine = trace?.steps?.[currentStep]?.line ?? null
+  const visualizationAvailable = language === 'c'
 
   const highlightLine = (editor, monaco, line) => {
     if (!editor || !monaco) return
@@ -81,7 +82,7 @@ export default function CodeEditor({ onRun, onRunAndVisualize }) {
             editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => onRun?.())
             editor.addCommand(
               monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.Enter,
-              () => onRunAndVisualize?.()
+              () => { if (visualizationAvailable) onRunAndVisualize?.() }
             )
             highlightLine(editor, monaco, currentLine)
           }}

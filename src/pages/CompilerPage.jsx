@@ -15,7 +15,7 @@ export default function CompilerPage() {
     // Always open the console when execution starts.
     useEditorStore.setState({ consoleOpen: true })
     const source = code[language]
-    const visualizationAvailable = language !== 'csharp'
+    const visualizationAvailable = language === 'c'
 
     setActiveConsoleTab('output')
     setStatus('compiling')
@@ -43,8 +43,8 @@ export default function CompilerPage() {
     if (withVisualizer) {
       if (!visualizationAvailable) {
         useEditorStore.setState({ visualizerOpen: false })
-        setTrace({ steps: [], available: false, message: 'Visualization not available for C#.' })
-        toast('Visualization not available for C#', { icon: 'ℹ️' })
+        setTrace({ steps: [], available: false, message: 'Visualization only available for C.' })
+        toast('Visualization only available for C', { icon: 'ℹ️' })
         return
       }
       useEditorStore.setState({ visualizerOpen: true })

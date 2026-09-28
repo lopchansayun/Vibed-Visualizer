@@ -24,11 +24,11 @@ export class InterpError extends Error {
 }
 
 const TYPES = new Set([
-  'void', 'bool', 'char', 'signed', 'unsigned', 'short', 'int', 'long', 'float', 'double',
+  'void', 'bool', '_Bool', 'char', 'signed', 'unsigned', 'short', 'int', 'long', 'float', 'double', 'int8_t', 'uint8_t', 'int16_t', 'uint16_t', 'int32_t', 'uint32_t', 'int64_t', 'uint64_t', 'intptr_t', 'uintptr_t', 'int_least8_t', 'uint_least8_t', 'int_least16_t', 'uint_least16_t', 'int_least32_t', 'uint_least32_t', 'int_least64_t', 'uint_least64_t', 'int_fast8_t', 'uint_fast8_t', 'int_fast16_t', 'uint_fast16_t', 'int_fast32_t', 'uint_fast32_t', 'int_fast64_t', 'uint_fast64_t', 'ptrdiff_t', 'wchar_t',
   'string', 'auto', 'var', 'size_t', 'std::string', 'std::size_t', 'std::vector', 'std::array', 'std::deque', 'std::list', 'std::set', 'std::map', 'std::unordered_map', 'std::unordered_set', 'std::stack', 'std::queue', 'std::pair', 'vector', 'array', 'deque', 'list', 'set', 'map', 'unordered_map', 'unordered_set', 'stack', 'queue', 'pair',
 ])
 
-const TYPE_WORDS = /^(?:(?:const|static|volatile|register|extern|mutable|constexpr|signed|unsigned|short|long)\s+)*(?:void|bool|char|signed|unsigned|short|int|long|float|double|string|auto|var|size_t|std::string|std::size_t)(?:\s+long|\s+int)?$/
+const TYPE_WORDS = /^(?:(?:const|static|volatile|register|extern|restrict|inline|mutable|constexpr|signed|unsigned|short|long)\s+)*(?:void|bool|char|signed|unsigned|short|int|long|float|double|string|auto|var|size_t|std::string|std::size_t)(?:\s+long|\s+int)?$/
 
 function isTypeStart(s) {
   const x = s.trim().replace(/\s+/g, ' ')
@@ -83,6 +83,15 @@ function stripCommentsAndPreprocessor(code) {
   for (const [name, value] of Object.entries(objectMacros)) {
     out = out.replace(new RegExp(`\\b${name}\\b`, 'g'), value)
   }
+  // Common C standard macros/types that are safe to model directly.
+  out = out.replace(/\bNULL\b/g, '0').replace(/\btrue\b/g, '1').replace(/\bfalse\b/g, '0')
+  // Headers are compile-time declarations for this educational interpreter;
+  // the native runtime provides the supported library functions itself.
+  out = out.replace(/^\s*#\s*include\s*[<\"][^>\"]+[>\"]\s*$/gm, '')
+  // C11 static assertions are compile-time only. Evaluate simple constant forms.
+  out = out.replace(/^\s*_Static_assert\s*\(\s*([^,]+)\s*,[^;]*\)\s*;?\s*$/gm, (m, expr) => {
+    try { return Number(Function(`return (${expr})`)()) ? '' : m } catch { return m }
+  })
 
   // [PATCH 9] __LINE__ expansion: replace with the line number at that point.
   const lines = out.split('\n')
@@ -167,7 +176,12 @@ function lex(src) {
       const start = i
       i++
       while (i < src.length && /[0-9A-Fa-fxX.eE_]/.test(src[i])) i++
-      const raw = src.slice(start, i).replace(/_/g, '')
+      // C/C++ floating/integer suffixes (f/F/l/L/ll/LL).
+      if (src[i] === 'f' || src[i] === 'F' || src[i] === 'l' || src[i] === 'L') {
+        i++
+        if ((src[i - 1] === 'l' || src[i - 1] === 'L') && (src[i] === 'l' || src[i] === 'L')) i++
+      }
+      const raw = src.slice(start, i).replace(/_/g, '').replace(/[fFlL]+$/, '')
       const value = /^0x/i.test(raw) ? parseInt(raw, 16) : Number(raw)
       tokens.push({ type: 'number', value: Number.isNaN(value) ? 0 : value, line: lineAt(start) })
       continue
@@ -234,6 +248,15 @@ class Parser {
     if (this.is('cout') || (this.is('std') && this.peek(1).value==='::' && this.peek(2).value==='cout')) return this.parseCout()
     if (this.is('cin') || (this.is('std') && this.peek(1).value==='::' && this.peek(2).value==='cin')) return this.parseCin()
     if (this.is('Console')) return this.parseConsolePrint()
+    // C labels and goto. Labels are represented explicitly so the runtime can
+    // transfer control without relying on JavaScript eval/Function.
+    if (this.peek().type==='id' && this.peek(1).value===':') {
+      const label=this.take().value; this.expect(':');
+      if (this.is(';')) this.take();
+      const statement=this.is('}') || this.peek().type==='eof' ? {type:'empty',line} : this.parseStatement();
+      return {type:'label',line,label,statement}
+    }
+    if (this.is('goto')) { this.take(); const label=this.take().value; this.expect(';'); return {type:'goto',line,label} }
     if (this.is('break')) { this.take(); this.expect(';'); return {type:'break',line} }
     if (this.is('continue')) { this.take(); this.expect(';'); return {type:'continue',line} }
     if (this.is('case') || this.is('default')) return null
@@ -376,15 +399,15 @@ class Parser {
     const save=this.i
     let ptr=0
     const start=this.peek().value
-    if (start==='const' || start==='static' || start==='volatile' || start==='constexpr') this.take()
+    while (['const','static','volatile','restrict','register','extern','inline','constexpr'].includes(this.peek().value)) this.take()
     let typeParts=[]
     // [PATCH 2] Accept 'struct Tag' / 'enum Tag' and drop the keyword.
-    if (this.is('struct') || this.is('enum')) {
+    if (this.is('struct') || this.is('union') || this.is('enum')) {
       this.take()
       if (this.peek().type === 'id') typeParts.push(this.take().value)
       if (this.is('<')) this.skipBalanced('<','>')
     }
-    while (this.peek().type==='id' && (TYPES.has(this.peek().value) || ['struct','enum'].includes(this.peek().value))) { typeParts.push(this.take().value); if (this.is('<')) { this.skipBalanced('<','>') } if (this.is('*')) break }
+    while (this.peek().type==='id' && (TYPES.has(this.peek().value) || ['struct','union','enum'].includes(this.peek().value))) { typeParts.push(this.take().value); if (this.is('<')) { this.skipBalanced('<','>') } if (this.is('*')) break }
     if (!typeParts.length && this.peek().value==='std' && this.peek(1).value==='::' && this.peek(2).type==='id') { typeParts.push(`std::${this.peek(2).value}`); this.take(); this.take(); this.take(); if(this.is('<')) this.skipBalanced('<','>') }
     if (!typeParts.length && !(this.peek().type==='id' && (this.peek(1).type==='id' || this.peek(1).value==='*' || this.peek(1).value==='&'))) { this.i=save; return null }
     if (!typeParts.length && this.peek().type==='id' && (this.knownTypes.has(this.peek().value) || this.peek(1).type==='id')) typeParts.push(this.take().value)
@@ -408,10 +431,17 @@ class Parser {
   }
 
   parseInitializerList() {
-    // [PATCH 2] Support nested initializer lists: {{1,2},{3,4}}.
     this.expect('{'); const values=[]
     while (!this.is('}') && this.peek().type!=='eof') {
-      if (this.is('{')) values.push(this.parseInitializerList())
+      if (this.eat('.')) {
+        const name=this.take().value; this.expect('=');
+        const value=this.is('{') ? this.parseInitializerList() : this.parseExpression();
+        values.push({type:'designatedField',name,value});
+      } else if (this.eat('[')) {
+        const index=this.parseExpression(); this.expect(']'); this.expect('=');
+        const value=this.is('{') ? this.parseInitializerList() : this.parseExpression();
+        values.push({type:'designatedIndex',index,value});
+      } else if (this.is('{')) values.push(this.parseInitializerList())
       else values.push(this.parseExpression())
       if (!this.eat(',')) break
     }
@@ -449,6 +479,16 @@ class Parser {
     // [PATCH 2] Cast to user-defined type.
     if (this.is('(') && this.peek(1).type==='id' && this.knownTypes.has(this.peek(1).value) && (this.peek(2).value===')' || this.peek(2).value==='*')) {
       const save=this.i; this.take(); const typeName=this.take().value; let ptr=0; while(this.eat('*'))ptr++; if(this.eat(')')) return {type:'cast',dataType:typeName,pointerDepth:ptr,expr:this.parseUnary()}; this.i=save
+    }
+    // C compound literal: (struct Point){ .x = 1, .y = 2 }
+    if (this.is('(')) {
+      const save=this.i; this.take(); let parts=[]
+      while (this.peek().type==='id' || this.is('*')) parts.push(this.take().value)
+      if (this.eat(')') && this.is('{')) {
+        const initializer=this.parseInitializerList()
+        return {type:'compoundLiteral',dataType:parts.join(' '),initializer,line}
+      }
+      this.i=save
     }
     return this.parsePostfix()
   }
@@ -539,7 +579,7 @@ function extractClassDefs(clean) {
   const ranges = []
 
   for (let i = 0; i < tokens.length; i++) {
-    if (!['class','struct'].includes(tokens[i].value)) continue
+    if (!['class','struct','union'].includes(tokens[i].value)) continue
     const nameTok = tokens[i + 1]
     if (!nameTok || nameTok.type !== 'id') continue
     let brace = i + 2
@@ -572,7 +612,7 @@ function extractClassDefs(clean) {
       return { body: tokens.slice(brace + 1, e), end: e }
     })()
 
-    const def = { name:nameTok.value, kind:tokens[i].value, bases, virtualBases:[...virtualBases], fields:{}, methods:{}, overloadedMethods:{}, line:nameTok.line }
+    const def = { name:nameTok.value, kind:tokens[i].value, bases, virtualBases:[...virtualBases], fields:{}, methods:{}, overloadedMethods:{}, line:nameTok.line, union:tokens[i].value==='union' }
     let j = 0
     while (j < bodyTokens.length) {
       if (['public','private','protected'].includes(bodyTokens[j].value) && bodyTokens[j+1]?.value === ':') { j += 2; continue }
@@ -644,7 +684,13 @@ function extractClassDefs(clean) {
         const field = fp.tryDeclaration()
         if (field?.name && field.type==='decl') {
           // [PATCH 2] Retain self-referential pointer fields like N* next;
-          def.fields[field.name] = {type:field.dataType, initializer:field.initializer, pointerDepth:field.pointerDepth||0}
+          let bitWidth = null
+          const colon = part.findIndex(t => t.value === ':')
+          if (colon >= 0) {
+            const n = Number(part[colon + 1]?.value)
+            if (Number.isFinite(n)) bitWidth = Math.max(0, Math.trunc(n))
+          }
+          def.fields[field.name] = {type:field.dataType, initializer:field.initializer, pointerDepth:field.pointerDepth||0, bitWidth}
         }
       } catch {}
       j = endStmt + 1
@@ -682,13 +728,98 @@ function blankTokenRanges(clean, tokens, ranges) {
   return chars.join('')
 }
 
+
+function extractTypedefs(clean, classDefs={}, enumDefs={}) {
+  const aliases = {}
+  const ranges = []
+  const tokens = lex(clean)
+  for (let i=0;i<tokens.length;i++) {
+    if (tokens[i].value !== 'typedef') continue
+    let j=i+1
+    const kind=tokens[j]?.value
+    // typedef struct/union { ... } Alias; and typedef enum { ... } Alias;
+    if (kind==='struct' || kind==='union' || kind==='enum') {
+      let k=j+1
+      if(tokens[k]?.type==='id' && tokens[k+1]?.value==='{') k++
+      if(tokens[k]?.value==='{') {
+        let d=1,e=k+1
+        for(;e<tokens.length&&d;e++){ if(tokens[e].value==='{')d++; else if(tokens[e].value==='}')d-- }
+        const aliasTok=tokens[e]
+        if(aliasTok?.type==='id' && tokens[e+1]?.value===';') {
+          if(kind==='enum') {
+            let value=0,map={}
+            for(let q=k+1;q<e;q++) {
+              if(tokens[q].type!=='id') continue
+              const key=tokens[q].value
+              if(tokens[q+1]?.value==='=') { value=Number(tokens[q+2]?.value); if(!Number.isFinite(value)) value=0; q+=2 }
+              map[key]=value++
+            }
+            enumDefs[aliasTok.value]=map
+          } else {
+            const def={name:aliasTok.value,kind,union:kind==='union',bases:[],virtualBases:[],fields:{},methods:{},overloadedMethods:{},line:aliasTok.line}
+            let q=k+1
+            while(q<e) {
+              let r=q, depth=0
+              for(;r<e;r++){ if(['{','(','['].includes(tokens[r].value))depth++; else if(['}',')',']'].includes(tokens[r].value))depth--; if(tokens[r].value===';'&&depth===0)break }
+              if(r<e) {
+                const ft=[...tokens.slice(q,r),{type:'eof',value:'<eof>',line:tokens[r].line}]
+                try { const fp=new Parser(ft,clean,new Set([...TYPES,...Object.keys(classDefs),aliasTok.value])); const f=fp.tryDeclaration(); if(f?.name) def.fields[f.name]={type:f.dataType,initializer:f.initializer,pointerDepth:f.pointerDepth||0} } catch {}
+                q=r+1
+              } else break
+            }
+            classDefs[aliasTok.value]=def
+          }
+          aliases[aliasTok.value]=kind==='enum'?aliasTok.value:aliasTok.value
+          ranges.push({start:tokens[i].line,end:tokens[e+1].line})
+          i=e+1
+          continue
+        }
+      }
+    }
+    // Ordinary typedef aliases, including pointer aliases.
+    let end=j, depth=0
+    for (; end<tokens.length; end++) {
+      const v=tokens[end].value
+      if (v==='{' || v==='(' || v==='[' || v==='<') depth++
+      else if (v==='}' || v===')' || v===']' || v==='>') depth=Math.max(0,depth-1)
+      if (v===';' && depth===0) break
+    }
+    if (end>=tokens.length) continue
+    const part=tokens.slice(j,end)
+    const ids=part.filter(t=>t.type==='id').map(t=>t.value)
+    if (!ids.length) continue
+    const alias=ids.at(-1)
+    const before=part.slice(0,-1).map(t=>t.value).join(' ').replace(/\s*\*\s*/g,'*').trim()
+    if (before && alias) { aliases[alias]=before; ranges.push({start:tokens[i].line,end:tokens[end].line}) }
+    i=end
+  }
+  return {aliases,ranges}
+}
+
+function blankTypedefRanges(clean, ranges) {
+  if (!ranges.length) return clean
+  const lines=clean.split('\n')
+  for (const r of ranges) for (let i=Math.max(0,r.start-1); i<Math.min(lines.length,r.end); i++) lines[i]=lines[i].replace(/[^\n]/g,' ')
+  return lines.join('\n')
+}
+
+function stripTypedefDeclarations(clean) {
+  // Preserve line count while removing typedef declarations from the parser
+  // stream. Handle ordinary aliases and typedef struct/union/enum definitions.
+  let out=clean.replace(/\btypedef\s+(?:struct|union|enum)(?:\s+[A-Za-z_]\w*)?\s*\{[\s\S]*?\}\s*[A-Za-z_]\w*\s*;/g, m=>m.replace(/[^\n]/g,' '))
+  out=out.replace(/\btypedef\s+[^;\n]+;/g, m=>m.replace(/[^\n]/g,' '))
+  return out
+}
+
 function collectFunctions(code, language) {
   let clean = stripCommentsAndPreprocessor(code)
   const enumInfo = extractEnumDefs(clean)
   const {defs: classDefs, ranges} = extractClassDefs(clean)
+  const typedefInfo = extractTypedefs(clean, classDefs, enumInfo.defs)
   clean = blankTokenRanges(clean, lex(clean), ranges)
+  clean = stripTypedefDeclarations(clean)
   clean = clean.replace(/\benum(?:\s+(?:class|struct))?\s+[A-Za-z_]\w*\s*\{[^{}]*\}\s*;?/g, m => m.replace(/[^\n]/g,' '))
-  const knownTypes = new Set([...Object.keys(classDefs), ...Object.keys(enumInfo.defs), ...TYPES])
+  const knownTypes = new Set([...Object.keys(classDefs), ...Object.keys(enumInfo.defs), ...Object.keys(typedefInfo.aliases), ...TYPES])
   const tokens = lex(clean)
   const parser = new Parser(tokens, clean, knownTypes)
   const functions = {}
@@ -722,6 +853,7 @@ function collectFunctions(code, language) {
   functions.__structDefs=classDefs
   functions.__enumDefs=enumInfo.defs
   functions.__globals=globals
+  functions.__typedefs=typedefInfo.aliases
   return functions
 }
 
@@ -811,7 +943,7 @@ function parseParams(tokens) {
 }
 
 function valueToString(v) {
-  if(Array.isArray(v)) return `[${v.map(valueToString).join(', ')}]`
+  if(Array.isArray(v)) { if(v.__cString) { const chars=v.slice(0, v.indexOf(0)>=0?v.indexOf(0):v.length).map(x=>typeof x==='number'?String.fromCharCode(x):String(x)); return chars.join('') } return `[${v.map(valueToString).join(', ')}]` }
   if(v && typeof v==='object' && v.__struct) return `{ ${Object.entries(v.fields).map(([k,x])=>`${k}: ${valueToString(x)}`).join(', ')} }`
   if(v && typeof v==='object' && v.__containerType) {
     if (v.__data instanceof Map) return `{${Array.from(v.__data.entries()).map(([k,x])=>`${k}: ${valueToString(x)}`).join(', ')}}`
@@ -823,4 +955,4 @@ function valueToString(v) {
   return String(v)
 }
 
-export { TYPES, TYPE_WORDS, stripCommentsAndPreprocessor, lex, Parser, parseBalancedBody, extractEnumDefs, extractClassDefs, blankTokenRanges, collectFunctions, parseParams, valueToString }
+export { TYPES, TYPE_WORDS, stripCommentsAndPreprocessor, lex, Parser, parseBalancedBody, extractEnumDefs, extractClassDefs, extractTypedefs, blankTokenRanges, collectFunctions, parseParams, valueToString }

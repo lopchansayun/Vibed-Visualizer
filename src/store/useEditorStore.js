@@ -18,7 +18,7 @@ export const useEditorStore = create((set, get) => ({
   setLanguage: (language) =>
     set((state) => ({
       language,
-      visualizerOpen: language === 'csharp' ? false : state.visualizerOpen,
+      visualizerOpen: language === 'c' ? state.visualizerOpen : false,
       // keep any edits the user already made per-language
     })),
   setCode: (code) =>
@@ -45,7 +45,7 @@ export const useEditorStore = create((set, get) => ({
   trace: null, // { steps: [...], available, message }
   currentStep: 0,
   isPlaying: false,
-  visualizerOpen: true,
+  visualizerOpen: false,
   consoleOpen: false,
   showAddresses: true,
   showStack: true,
@@ -65,7 +65,7 @@ export const useEditorStore = create((set, get) => ({
     set((state) => ({ currentStep: Math.max(state.currentStep - 1, 0) })),
   restartTrace: () => set({ currentStep: 0, isPlaying: false }),
   setIsPlaying: (isPlaying) => set({ isPlaying }),
-  toggleVisualizer: () => set((state) => ({ visualizerOpen: !state.visualizerOpen })),
+  toggleVisualizer: () => set((state) => ({ visualizerOpen: state.language === 'c' ? !state.visualizerOpen : false })),
   toggleConsole: () => set((state) => ({ consoleOpen: !state.consoleOpen })),
 
   // theme
