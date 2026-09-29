@@ -1,7 +1,8 @@
-import { Play, Square, GitBranch, RotateCcw, Sun, Moon, Braces, TerminalSquare } from 'lucide-react'
+import { Play, Square, GitBranch, RotateCcw, Sun, Moon, Braces, TerminalSquare, FileCode2 } from 'lucide-react'
 import { useEditorStore } from '../../store/useEditorStore'
 import { LANGUAGES, LANGUAGE_ORDER } from '../../config/languages'
 import IconButton from '../ui/IconButton'
+import { Link } from 'react-router-dom'
 
 export default function Header({ onRun, onRunAndVisualize, onStop, onReset }) {
   const language = useEditorStore((s) => s.language)
@@ -60,6 +61,15 @@ export default function Header({ onRun, onRunAndVisualize, onStop, onReset }) {
       </div>
 
       <div className="min-w-0 flex-1" />
+
+      <Link
+        to="/c-support"
+        className="flex h-8 shrink-0 items-center gap-1 rounded-md border border-border px-2 text-[11px] font-medium text-text-muted hover:text-text sm:px-2.5 sm:text-xs"
+        title="See C project and DSA support"
+      >
+        <FileCode2 size={13} />
+        <span className="hidden sm:inline">C Support</span>
+      </Link>
 
       <button
         type="button"

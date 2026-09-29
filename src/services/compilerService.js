@@ -33,7 +33,7 @@ function canAttemptMock(code, stdin = '') {
   return true
 }
 
-function mockResultFromInterpreter({ language, code, stdin = '', start }) {
+function mockResultFromInterpreter({ language, code, files = [], stdin = '', start }) {
   if (!checkBraceBalance(code)) {
     return {
       success: false, stdout: '', stderr: `${fileNameFor(language)}: error: unbalanced braces — a '{' is missing its '}' (or vice versa).`,
@@ -41,7 +41,7 @@ function mockResultFromInterpreter({ language, code, stdin = '', start }) {
     }
   }
   try {
-    const { stdout } = runInterpreter(code, language, stdin)
+    const { stdout } = runInterpreter(code, language, stdin, files)
     return {
       success: true, stdout, stderr: '', exitCode: 0,
       executionTime: Math.round(performance.now() - start),

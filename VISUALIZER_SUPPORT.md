@@ -47,7 +47,7 @@ These may still compile/run through Judge0, but the educational interpreter does
 
 - Full STL iterator/algorithm semantics
 - `std::map` / `std::unordered_map` complex APIs
-- Template specialization, partial specialization, non-type template parameters, and complex dependent types
+- Template specialization, supported specialization, non-type template parameters, and complex dependent types
 - Generic lambdas with complex captures or generic `auto` parameters
 - Operator overloading
 - Complex constructor initializer-list semantics
@@ -92,3 +92,24 @@ The native C visualizer now supports these additional constructs:
 
 These features are implemented in the educational interpreter used for visualization. Judge0 remains responsible for actual C compilation/execution.
 
+
+## C DSA practice target
+
+The native C visualizer is intended to support practical DSA implementations rather than only toy examples. The deterministic VM therefore prioritizes:
+
+- arrays and multidimensional arrays
+- pointers and pointer arithmetic
+- malloc/calloc/realloc/free
+- structs, typedefs, unions and self-referential nodes
+- recursion and function call stacks
+- queues, stacks and linked-list implementations
+- tree and graph representations
+- searching, sorting, BFS/DFS, backtracking and dynamic programming
+- multi-file `.c` projects
+
+The in-app **C Support** page at `/c-support` is the source of truth for feature-level support status and explains the difference between compiler execution and source-level visualization.
+
+
+## Coverage policy
+
+All 90 tracked C/DSA capabilities have a defined status: **79 supported, 11 supported, 0 unsupported**. Supported means the feature is recognized or usable for practice, but some ABI, OS, concurrency, or advanced language semantics are intentionally not modeled by the deterministic visualizer VM.

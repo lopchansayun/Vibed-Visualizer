@@ -1,8 +1,8 @@
 import { InterpError, fmtAddr, TYPES, stripCommentsAndPreprocessor, collectFunctions, valueToString, Parser, lex } from './cppParser.js'
-import { normalizeAdvancedCpp, normalizeFunctionPointerDeclarations } from './advancedFeatures.js'
+import { normalizeAdvancedCpp, normalizeFunctionPointerDeclarations, normalizePointerToArrayDeclarations } from './advancedFeatures.js'
 
-const MAX_STEPS = 2500
-const MAX_LOOP_ITERATIONS = 5000
+const MAX_STEPS = 20000
+const MAX_LOOP_ITERATIONS = 50000
 const MAX_CALL_DEPTH = 100
 const STACK_BASE = 0x7ffe6a3b2c80
 const STACK_STRIDE = 0x8
@@ -138,14 +138,16 @@ function readScanfToken(source, state) {
   return source.slice(start, state.pos)
 }
 
-export function runInterpreter(code, language='cpp', stdin='') {
+export function runInterpreter(code, language='cpp', stdin='', files=[]) {
   if (language !== 'c') {
     const error = new InterpError(`Native interpreter is only available for C; use Judge0 for ${language}.`)
     error.mockUnsupported = true
     throw error
   }
-  const normalized = language === 'cpp' ? normalizeAdvancedCpp(code) : language === 'c' ? normalizeFunctionPointerDeclarations(code) : code
-  const clean=stripCommentsAndPreprocessor(normalized)
+  const normalized = language === 'cpp' ? normalizeAdvancedCpp(code) : language === 'c' ? normalizePointerToArrayDeclarations(normalizeFunctionPointerDeclarations(code)) : code
+  const fileMap = new Map((files || []).map(f => [f.name, f.content]))
+  const expanded = String(normalized).replace(/^\s*#\s*include\s*[\"]([^\"]+\.h)[\"]\s*$/gm, (m, name) => fileMap.has(name) ? `\n/* header: ${name} */\n${fileMap.get(name)}\n` : m)
+  const clean=stripCommentsAndPreprocessor(expanded)
   let functions
   try { functions=collectFunctions(clean,language) } catch(err) { if(err instanceof InterpError){err.mockUnsupported=err.mockUnsupported!==false;throw err} throw err }
 
@@ -216,6 +218,8 @@ export function runInterpreter(code, language='cpp', stdin='') {
     if(addr===0 || addr===null || addr===undefined) throw new InterpError('dereferenced null/invalid pointer (segmentation fault)',line)
     const slot=callFrames.flatMap(f=>Array.from(f.values.values())).find(s=>s.address===addr) || Array.from(globals.values()).find(s=>s.address===addr)
     if(slot) return slot.value
+    const resolved = resolveAddress(addr)
+    if (resolved?.kind === 'stack') return resolved.slot.value[resolved.index]
     const block=findBlock(addr); if(block){if(block.freed)throw new InterpError(`dereferenced freed memory at ${fmtAddr(addr)} (use-after-free)`,line);return Array.isArray(block.value)?block.value[0]:block.value}
     throw new InterpError(`invalid dereference of ${fmtAddr(addr)} (segmentation fault)`,line)
   }
@@ -264,7 +268,38 @@ export function runInterpreter(code, language='cpp', stdin='') {
   function lvalue(node,frame) {
     if(node.type==='var') {const r=resolveVar(node.name,frame); if(r.slot.field){return {get:()=>r.slot.obj.fields[r.slot.name],set:v=>{r.slot.obj.fields[r.slot.name]=clone(v)},address:0,slot:r.slot}} if(r.slot.reference){return {get:()=>deref(r.slot.reference,node.line),set:v=>writeAddr(r.slot.reference,v,node.line),address:r.slot.reference,slot:r.slot}} return {get:()=>r.slot.value,set:v=>{r.slot.value=clone(truncateForType(v,r.slot.type,r.slot.isPointer?1:0))},address:r.slot.address,slot:r.slot}}
     if(node.type==='unary'&&node.op==='*'){const pt=pointerTarget(node.expr,frame); if(pt){if(pt.stackSlot){const arr=pt.stackSlot.value;if(pt.index<0||pt.index>=arr.length)throw new InterpError(`pointer arithmetic out of bounds (index ${pt.index})`,node.line);return {get:()=>arr[pt.index],set:v=>{arr[pt.index]=clone(v)},address:pt.address,slot:pt.stackSlot}} if(pt.block.freed)throw new InterpError('dereferenced freed memory (use-after-free)',node.line);const arr=Array.isArray(pt.block.value)?pt.block.value:[pt.block.value];if(pt.index<0||pt.index>=arr.length)throw new InterpError(`pointer arithmetic out of bounds (index ${pt.index})`,node.line);return {get:()=>arr[pt.index],set:v=>{arr[pt.index]=clone(v)},address:pt.address}} const addr=evalNode(node.expr,frame); return {get:()=>deref(addr,node.line),set:v=>writeAddr(addr,v,node.line),address:addr}}
-    if(node.type==='index'){const base=evalNode(node.target,frame); const idx=Math.trunc(evalNode(node.index,frame)); const targetSlot=node.target.type==='var'?resolveVar(node.target.name,frame).slot:null; const b=findBlock(base); if(b){if(b.freed)throw new InterpError('invalid array access: freed memory',node.line); const arr=Array.isArray(b.value)?b.value:[b.value]; if(idx<0||idx>=arr.length)throw new InterpError(`index ${idx} out of bounds (size ${arr.length})`,node.line); return {get:()=>arr[idx],set:v=>{arr[idx]=clone(v)},address:base+idx}} if(targetSlot&&Array.isArray(targetSlot.value)){const arr=targetSlot.value;if(idx<0||idx>=arr.length)throw new InterpError(`index ${idx} out of bounds (size ${arr.length})`,node.line);return {get:()=>arr[idx],set:v=>{arr[idx]=clone(v)},address:targetSlot.address+idx}} if(typeof base==='string'){if(idx<0||idx>=base.length)throw new InterpError(`string index ${idx} out of bounds (size ${base.length})`,node.line); return {get:()=>base[idx],set:v=>{throw new InterpError('cannot assign to string element',node.line)}}} throw new InterpError('invalid array access',node.line)}
+    if(node.type==='index'){
+      const idx=Math.trunc(evalNode(node.index,frame))
+      const ptrArray = (() => { try { const v=evalNode(node.target,frame); return v?.__ptrArray ? v : null } catch { return null } })()
+      if (ptrArray) {
+        if (idx < 0 || idx >= ptrArray.rows.length) throw new InterpError(`pointer-to-array index ${idx} out of bounds`,node.line)
+        return {get:()=>ptrArray.rows[idx],set:v=>{ptrArray.rows[idx]=clone(v)},address:ptrArray.address + idx*ptrArray.width*4}
+      }
+      const targetLV = (() => { try { return lvalue(node.target,frame) } catch { return null } })()
+      const base = targetLV ? targetLV.get() : evalNode(node.target,frame)
+      const b=findBlock(base)
+      if(b){
+        if(b.freed)throw new InterpError('invalid array access: freed memory',node.line)
+        const arr=Array.isArray(b.value)?b.value:[b.value]
+        if(idx<0||idx>=arr.length)throw new InterpError(`index ${idx} out of bounds (size ${arr.length})`,node.line)
+        return {get:()=>arr[idx],set:v=>{arr[idx]=clone(v)},address:b.address+idx,slot:targetLV?.slot}
+      }
+      if(Array.isArray(base)){
+        let flexible = false
+        if (node.target?.type === 'member' || node.target?.type === 'memberPtr') {
+          try { const o=evalNode(node.target.target,frame); const obj=o?.__struct ? o : (typeof o==='number' ? deref(o,node.line) : null); flexible=Boolean(functions.__structDefs?.[obj?.type]?.fields?.[node.target.prop]?.flexible) } catch {}
+        }
+        if(idx<0 || (!flexible && idx>=base.length)) throw new InterpError(`index ${idx} out of bounds (size ${base.length})`,node.line)
+        if (flexible && idx >= base.length) base.length = idx + 1
+        const address=(targetLV?.address || 0) + idx
+        return {get:()=>base[idx] ?? 0,set:v=>{base[idx]=clone(v)},address,slot:targetLV?.slot}
+      }
+      if(typeof base==='string'){
+        if(idx<0||idx>=base.length)throw new InterpError(`string index ${idx} out of bounds (size ${base.length})`,node.line)
+        return {get:()=>base[idx],set:v=>{throw new InterpError('cannot assign to string element',node.line)},address:targetLV?.address || 0,slot:targetLV?.slot}
+      }
+      throw new InterpError('invalid array access',node.line)
+    }
     if(node.type==='member'||node.type==='memberPtr'){
       let obj = evalNode(node.target,frame)
       if(node.type==='memberPtr' && typeof obj==='number') obj=deref(obj,node.line)
@@ -277,6 +312,10 @@ export function runInterpreter(code, language='cpp', stdin='') {
       }
       const meta = functions.__structDefs?.[obj.type]?.fields?.[node.prop]
       const mask = meta?.bitWidth > 0 && meta.bitWidth < 32 ? ((2 ** meta.bitWidth) - 1) : null
+      if (meta?.flexible) {
+        if (!Array.isArray(obj.fields[node.prop])) obj.fields[node.prop]=[]
+        return {get:()=>obj.fields[node.prop],set:v=>{obj.fields[node.prop]=clone(v)}}
+      }
       return {get:()=>obj.fields[node.prop],set:v=>{obj.fields[node.prop]=mask==null?clone(v):(Math.trunc(Number(v))&mask)}}
     }
     throw new InterpError('expression is not assignable',node.line)
@@ -294,7 +333,7 @@ export function runInterpreter(code, language='cpp', stdin='') {
     const def=functions.__structDefs?.[t]
     if(def){
       const fields=collectClassFields(def,functions.__structDefs)
-      return Math.max(1,Object.keys(fields).reduce((n,k)=>n+(fields[k]?.pointerDepth>0 ? 8 : sizeofType(fields[k]?.type||'int')),0))
+      return Math.max(1,Object.keys(fields).reduce((n,k)=>n+(fields[k]?.flexible ? 0 : (fields[k]?.pointerDepth>0 ? 8 : sizeofType(fields[k]?.type||'int'))),0))
     }
     return 4
   }
@@ -509,14 +548,17 @@ export function runInterpreter(code, language='cpp', stdin='') {
   function callFunction(node,caller) {
     let name=node.callee?.name
     let functionRef = null
+    if (node.callee?.type === 'member' || node.callee?.type === 'memberPtr') {
+      try { const ref = evalNode(node.callee, caller); if (ref?.__functionRef) { functionRef = ref; name = ref.name } } catch {}
+    }
     const builtinNames = new Set([
       'printf','puts','putchar','fputs','scanf','sscanf',
       'strlen','strnlen','strcpy','strncpy','strcat','strncat','strcmp','strncmp','strchr','strrchr','strstr',
       'memchr','memcpy','memmove','memset','sqrt','cbrt','pow','sin','cos','tan','asin','acos','atan','atan2',
       'exp','log','log10','floor','ceil','round','trunc','fabs','fmod','hypot','rand','srand','time',
-      'abs','labs','llabs','atoi','atol','atoll','strtol','strtoul','strtod',
+      'abs','labs','llabs','atoi','atol','atoll','strtol','strtoul','strtod','qsort','bsearch','fopen','freopen','fclose','fflush','fprintf','fscanf','fgets','fread','fwrite','feof','rewind','fseek','ftell','va_start','va_arg','va_end','pthread_create','pthread_join','pthread_mutex_init','pthread_mutex_lock','pthread_mutex_unlock','pthread_mutex_destroy','sleep','usleep','getenv',
       'isalpha','isdigit','isalnum','isspace','islower','isupper','tolower','toupper',
-      'malloc','calloc','realloc','free','max','min','lambda_create',
+      'malloc','calloc','realloc','free','max','min','lambda_create','__ptr_array',
     ])
     if (node.callee?.type === 'var' && !functions[node.callee.name] && !builtinNames.has(node.callee.name)) {
       try {
@@ -608,6 +650,10 @@ export function runInterpreter(code, language='cpp', stdin='') {
         if(node.callee.prop==='back') return obj[obj.length-1] ?? 0
       }
       if(!obj?.__struct) throw new InterpError(`method '${node.callee.prop}' called on non-object`,node.line)
+      const fieldRef = obj.fields?.[node.callee.prop]
+      if (fieldRef?.__functionRef) {
+        return callFunction({callee:{type:'var',name:fieldRef.name},args:node.args},caller)
+      }
       const found=findMethod(obj.type,node.callee.prop,new Set(),node.args)
       if(!found) { const e=new InterpError(`unsupported method '${obj.type}::${node.callee.prop}'`,node.line); e.mockUnsupported=true; throw e }
       const addr=typeof target==='number' ? target : findObjectAddress(obj)
@@ -730,6 +776,55 @@ export function runInterpreter(code, language='cpp', stdin='') {
     }
     if(name==='abs'||name==='labs')return Math.abs(Number(evalNode(node.args[0],caller)||0))
     if(name==='max'||name==='min'){const a=node.args.map(x=>Number(evalNode(x,caller)));return name==='max'?Math.max(...a):Math.min(...a)}
+    if(name==='__ptr_array') {
+      const base=evalNode(node.args[0],caller), width=Math.max(1,Math.trunc(Number(evalNode(node.args[1],caller)||1)))
+      const addr=typeof base==='number' ? base : (()=>{ try{return lvalue(node.args[0],caller).address}catch{return 0} })()
+      const resolved=resolveAddress(addr)
+      const rows=resolved?.kind==='stack' && Array.isArray(resolved.slot.value) ? resolved.slot.value : (Array.isArray(base)?base:[])
+      return { __ptrArray:true, address:addr, width, rows }
+    }
+    if(name==='qsort' || name==='bsearch') {
+      const args=node.args.map(a=>evalNode(a,caller))
+      const key = name==='bsearch' ? args[0] : null
+      const base = name==='bsearch' ? args[1] : args[0]
+      const n = Math.max(0,Math.trunc(name==='bsearch' ? args[2] : args[1] || 0))
+      const cmpNode = node.args[name==='bsearch'?4:3]
+      const ref = cmpNode ? evalNode(cmpNode,caller) : null
+      const comparator=ref?.name
+      if(!comparator) throw new InterpError(`${name} requires a function-pointer comparator`,node.line)
+      const addr=typeof base==='number'?base:(()=>{try{return lvalue(node.args[name==='bsearch'?1:0],caller).address}catch{return 0}})()
+      const resolved=resolveAddress(addr); if(!resolved) throw new InterpError(`${name}: invalid base pointer`,node.line)
+      const arr=resolved.kind==='stack'?resolved.slot.value:(Array.isArray(resolved.block.value)?resolved.block.value:null)
+      if(!arr) throw new InterpError(`${name}: base is not an array`,node.line)
+      const start=resolved.kind==='stack'?resolved.index:0; const values=arr.slice(start,start+n)
+      const cmp=(a,b)=>{ const aa=allocateHeap(1,a,'qsort-arg'), bb=allocateHeap(1,b,'qsort-arg'); try { return Number(callFunction({callee:{type:'var',name:comparator},args:[{type:'literal',value:aa},{type:'literal',value:bb}]},caller)||0) } finally { findBlock(aa).freed=true; findBlock(bb).freed=true } }
+      if(name==='qsort') { values.sort(cmp); for(let i=0;i<values.length;i++) arr[start+i]=values[i]; return 0 }
+      const keyValue = typeof key === 'number' ? (()=>{ try{return deref(key,node.line)}catch{return key} })() : key
+      const idx=values.findIndex(v=>{ const aa=allocateHeap(1,keyValue,'bsearch-key'), bb=allocateHeap(1,v,'bsearch-arg'); try { return Number(callFunction({callee:{type:'var',name:comparator},args:[{type:'literal',value:aa},{type:'literal',value:bb}]},caller)||0)===0 } finally { findBlock(aa).freed=true; findBlock(bb).freed=true } }); return idx<0?0:addr + idx
+    }
+    if(name==='fopen' || name==='freopen') {
+      const a=node.args.map(x=>evalNode(x,caller)); const path=String(a[name==='freopen'?1:0]??''); const mode=String(a[name==='freopen'?2:1]??'r');
+      const existing=ctx.files?.get(path); const data=existing?.data || ''; const handle={__file:true,path,mode,pos:0,data:mode.includes('a')?data:(mode.includes('w')?'':data),closed:false};
+      if(!ctx.files) ctx.files=new Map(); ctx.files.set(path,handle); return handle
+    }
+    if(name==='fclose' || name==='fflush') { const f=evalNode(node.args[0],caller); if(f?.__file){f.closed=name==='fclose';ctx.files?.set(f.path,f)} return 0 }
+    if(name==='rewind') { const f=evalNode(node.args[0],caller); if(f?.__file) f.pos=0; return 0 }
+    if(name==='fseek') { const f=evalNode(node.args[0],caller), off=Number(evalNode(node.args[1],caller)||0), wh=Number(evalNode(node.args[2],caller)||0); if(f?.__file) f.pos=wh===0?off:(wh===1?f.pos+off:f.data.length+off); return 0 }
+    if(name==='ftell') { const f=evalNode(node.args[0],caller); return f?.__file?f.pos:-1 }
+    if(name==='feof') { const f=evalNode(node.args[0],caller); return f?.__file && f.pos>=f.data.length ? 1:0 }
+    if(name==='fprintf') { const a=node.args.map(x=>evalNode(x,caller)); const f=a.shift(); if(!f?.__file) return -1; const text=formatPrintf(String(a.shift()??''),a); if(!f.mode.includes('r')) { f.data=f.data.slice(0,f.pos)+text+f.data.slice(f.pos+text.length); f.pos+=text.length; ctx.files.set(f.path,f) } return text.length }
+    if(name==='fputs') { const text=String(evalNode(node.args[0],caller)??''), f=evalNode(node.args[1],caller); if(f?.__file){f.data=f.data.slice(0,f.pos)+text+f.data.slice(f.pos+text.length);f.pos+=text.length;ctx.files.set(f.path,f)} return text.length }
+    if(name==='fgets') { const lv=lvalue(node.args[0],caller), n=Math.max(0,Math.trunc(evalNode(node.args[1],caller)||0)), f=evalNode(node.args[2],caller); if(!f?.__file)return 0; const chunk=f.data.slice(f.pos,f.pos+Math.max(0,n-1));f.pos+=chunk.length; const cur=lv.get(); if(Array.isArray(cur)){for(let i=0;i<cur.length;i++)cur[i]=i<chunk.length?chunk.charCodeAt(i):0;cur.__cString=true}else lv.set(chunk); return chunk.length?1:0 }
+    if(name==='fread' || name==='fwrite') { const ptr=node.args[0], size=Math.max(1,Math.trunc(evalNode(node.args[1],caller)||1)), count=Math.max(0,Math.trunc(evalNode(node.args[2],caller)||0)), f=evalNode(node.args[3],caller); if(!f?.__file)return 0; const total=size*count; if(name==='fread'){const lv=lvalue(ptr,caller),cur=lv.get(),chunk=f.data.slice(f.pos,f.pos+total);f.pos+=chunk.length;if(Array.isArray(cur)){for(let i=0;i<chunk.length&&i<cur.length;i++)cur[i]=chunk.charCodeAt(i)}return Math.floor(chunk.length/size)} const val=evalNode(ptr,caller); const text=Array.isArray(val)?String.fromCharCode(...val.slice(0,total)):String(val);f.data=f.data.slice(0,f.pos)+text+f.data.slice(f.pos+text.length);f.pos+=text.length;ctx.files.set(f.path,f);return Math.floor(text.length/size) }
+    if(name==='fscanf') { const f=evalNode(node.args[0],caller); if(!f?.__file)return 0; const fmt=String(evalNode(node.args[1],caller)||''); const token=f.data.slice(f.pos).trim().split(/\s+/)[0]||'';f.pos+=token.length; let ai=2; for(const spec of fmt.match(/%[disf]/g)||[]){const lv=lvalue(node.args[ai++],caller);lv.set(spec===' %f'?Number(token):spec===' %d'?parseInt(token,10):token)} return ai-2 }
+    if(name==='va_start') { const r=lvalue(node.args[0],caller); r.set({__va:true,frame:caller,cursor:0}); return 0 }
+    if(name==='va_arg') { const ap=evalNode(node.args[0],caller); const frame=ap?.frame||caller; const cur=ap?.cursor||0; const v=frame.__variadicArgs?.[cur]??0; if(ap) ap.cursor=cur+1; return v }
+    if(name==='va_end') return 0
+    if(name==='pthread_create') { const threadPtr=node.args[0], startRef=evalNode(node.args[2],caller), arg=evalNode(node.args[3],caller); if(startRef?.__functionRef){ callFunction({callee:{type:'var',name:startRef.name},args:[{type:'literal',value:arg}]},caller) } try{lvalue(node.args[0],caller).set(1)}catch{} return 0 }
+    if(name==='pthread_join') return 0
+    if(name.startsWith('pthread_mutex_')) return 0
+    if(name==='sleep' || name==='usleep') return 0
+    if(name==='getenv') return 0
     const rawFn=functions[name]
     const fn=chooseOverload(rawFn,node.args)
     if(!fn){const e=new InterpError(`unsupported function '${name}'`,node.line);e.mockUnsupported=true;throw e}
@@ -742,15 +837,17 @@ export function runInterpreter(code, language='cpp', stdin='') {
     }
     const bound = calleeRef?.__functionRef ? (calleeRef.bound || []) : []
     const values = [...bound, ...node.args.map(a => evalNode(a,caller))]
+    let fixedCount = 0
     fn.params.forEach((p,i)=>{
+      if (p.variadic) return
+      fixedCount++
       let v = values[i] ?? 0
-      // [PATCH 10] Unwrap captured references for by-ref captures.
-      if (v && typeof v === 'object' && v.__refAddress !== undefined) {
-        v = deref(v.__refAddress, node.line)
-      }
+      if (v && typeof v === 'object' && v.__refAddress !== undefined) v = deref(v.__refAddress, node.line)
       if (!p.pointerDepth && !p.reference && p.type) v = truncateForType(v, p.type, 0)
       makeSlot(frame,p.name,v,{pointer:p.pointerDepth>0,reference:p.reference,type:'parameter'})
     })
+    frame.__variadicArgs = values.slice(fixedCount)
+    frame.__vaCursors = new Map()
     snapshot(fn.line,`enter ${name}()`)
     let result=0
     try {execList(fn.body,frame); result=frame.__return??0} finally {snapshot(node.line,`return from ${name}()`);callFrames.pop()}
@@ -764,7 +861,7 @@ export function runInterpreter(code, language='cpp', stdin='') {
     const obj={__struct:true,type:resolved,fields:{}, ...(def.union?{__union:true}:{})}
     const allFields=collectClassFields(def,functions.__structDefs)
     for(const [k,meta] of Object.entries(allFields)){
-      obj.fields[k]=meta.initializer ? evalNode(meta.initializer,frame) : 0
+      obj.fields[k]=meta.flexible ? [] : (meta.initializer ? evalNode(meta.initializer,frame) : 0)
       if (meta.bitWidth != null && meta.bitWidth > 0) obj.fields[k] = Number(obj.fields[k]) & ((2 ** Math.min(meta.bitWidth, 31)) - 1)
     }
     return obj
@@ -849,7 +946,7 @@ export function runInterpreter(code, language='cpp', stdin='') {
         } else if(structDef && !pointer){
           value={__struct:true,type:resolvedDataType,fields:{}, ...(structDef?.union?{__union:true}: {})}
           const allFields=collectClassFields(structDef,functions.__structDefs)
-          for(const [k,meta] of Object.entries(allFields)) value.fields[k]=meta.initializer ? evalNode(meta.initializer,frame) : (meta.pointerDepth>0 ? 0 : 0)
+          for(const [k,meta] of Object.entries(allFields)) value.fields[k]=meta.flexible ? [] : (meta.initializer ? evalNode(meta.initializer,frame) : (meta.pointerDepth>0 ? 0 : 0))
           if(s.initializer?.type==='array') applyInitializer(value,s.initializer,frame)
           else if(s.initializer?.type==='compoundLiteral') value=evalNode(s.initializer,frame)
         } else if(/^(?:std::)?(?:vector|array|deque|list)/.test(s.dataType) && s.initializer?.type==='array'){
@@ -883,11 +980,25 @@ export function runInterpreter(code, language='cpp', stdin='') {
             ? (()=>{ const arr=[]; let pos=0; for(const item of node.values){ if(item?.type==='designatedIndex'){ const idx=Math.trunc(evalNode(item.index,frame)); arr[idx]=buildValue(item.value) } else if(item?.type==='designatedField'){ /* invalid for plain array */ } else arr[pos++]=buildValue(item) } return arr })()
             : evalNode(node, frame)
           value = buildValue(s.initializer)
+          if (s.dimensions.length && !s.dimensions.some(d => d?.type === 'flexible')) {
+            const dims = s.dimensions.filter(d => d?.type !== 'flexible').map(d => Math.max(1, Math.trunc(evalNode(d, frame))))
+            const pad = (arr, level) => {
+              const size = dims[level]
+              const out = Array.isArray(arr) ? arr : []
+              for (let i = 0; i < size; i++) {
+                if (out[i] === undefined) out[i] = level === dims.length - 1 ? 0 : pad([], level + 1)
+                else if (level < dims.length - 1) out[i] = pad(out[i], level + 1)
+              }
+              out.length = Math.max(out.length, size)
+              return out
+            }
+            value = pad(value, 0)
+          }
         }
         else if(s.initializer && s.initializer.type!=='constructorInit')value=evalNode(s.initializer,frame)
-        else if(s.dimensions.length && !s.initializer){
+        else if(s.dimensions.length && !s.dimensions.some(d => d?.type === 'flexible') && !s.initializer){
           // [PATCH 1] N-D row-major allocation.
-          const dims = s.dimensions.map(d => Math.max(1, Math.trunc(evalNode(d, frame))))
+          const dims = s.dimensions.filter(d => d?.type !== 'flexible').map(d => Math.max(1, Math.trunc(evalNode(d, frame))))
           const build = (level) => {
             if (level === dims.length - 1) return Array.from({length: dims[level]}, () => 0)
             return Array.from({length: dims[level]}, () => build(level + 1))
@@ -979,7 +1090,26 @@ export function runInterpreter(code, language='cpp', stdin='') {
       try {
         const fakeFrame = { line: g.line, scopes: [new Map()], values: new Map() }
         if (g.initializer) {
-          value = evalNode(g.initializer, fakeFrame)
+          if (g.initializer.type === 'array') {
+            const buildValue = (node) => node.type === 'array'
+              ? (() => {
+                  const arr = []
+                  let pos = 0
+                  for (const item of node.values) {
+                    if (item?.type === 'designatedIndex') {
+                      const idx = Math.trunc(evalNode(item.index, fakeFrame))
+                      arr[idx] = buildValue(item.value)
+                    } else if (item?.type !== 'designatedField') {
+                      arr[pos++] = buildValue(item)
+                    }
+                  }
+                  return arr
+                })()
+              : evalNode(node, fakeFrame)
+            value = buildValue(g.initializer)
+          } else {
+            value = evalNode(g.initializer, fakeFrame)
+          }
         } else if (g.dimensions?.length) {
           // Globals follow the same array semantics as local declarations.
           // This is important for common C data structures such as

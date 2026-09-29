@@ -147,13 +147,26 @@ function normalizeLambdaRefAccess(code) {
   return code
 }
 
-export { normalizeFunctionPointerDeclarations }
+
+function normalizePointerToArrayDeclarations(code) {
+  let out = String(code || '')
+  // Keep the row width as metadata encoded in a helper declaration. The runtime
+  // recognizes __ptr_array and exposes normal two-dimensional indexing.
+  out = out.replace(
+    /\b(?:const\s+)?([A-Za-z_]\w*)\s*\(\s*\*\s*([A-Za-z_]\w*)\s*\)\s*\[\s*([^\]]+)\s*\]\s*=\s*([^;]+);/g,
+    (_, type, name, width, init) => `auto ${name} = __ptr_array(${init}, ${width});`,
+  )
+  return out
+}
+
+export { normalizeFunctionPointerDeclarations, normalizePointerToArrayDeclarations }
 
 export function normalizeAdvancedCpp(code) {
   let out = String(code || '')
   out = normalizeTemplateFunctions(out)
   out = normalizeStructuredBindings(out)
   out = normalizeFunctionPointerDeclarations(out)
+  out = normalizePointerToArrayDeclarations(out)
   out = normalizeLambdas(out)
   out = normalizeLambdaRefAccess(out)
 

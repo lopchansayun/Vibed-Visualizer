@@ -25,7 +25,7 @@ export class InterpError extends Error {
 
 const TYPES = new Set([
   'void', 'bool', '_Bool', 'char', 'signed', 'unsigned', 'short', 'int', 'long', 'float', 'double', 'int8_t', 'uint8_t', 'int16_t', 'uint16_t', 'int32_t', 'uint32_t', 'int64_t', 'uint64_t', 'intptr_t', 'uintptr_t', 'int_least8_t', 'uint_least8_t', 'int_least16_t', 'uint_least16_t', 'int_least32_t', 'uint_least32_t', 'int_least64_t', 'uint_least64_t', 'int_fast8_t', 'uint_fast8_t', 'int_fast16_t', 'uint_fast16_t', 'int_fast32_t', 'uint_fast32_t', 'int_fast64_t', 'uint_fast64_t', 'ptrdiff_t', 'wchar_t',
-  'string', 'auto', 'var', 'size_t', 'std::string', 'std::size_t', 'std::vector', 'std::array', 'std::deque', 'std::list', 'std::set', 'std::map', 'std::unordered_map', 'std::unordered_set', 'std::stack', 'std::queue', 'std::pair', 'vector', 'array', 'deque', 'list', 'set', 'map', 'unordered_map', 'unordered_set', 'stack', 'queue', 'pair',
+  'string', 'auto', 'var', 'size_t', 'FILE', 'pthread_t', 'pthread_mutex_t', 'va_list', 'std::string', 'std::size_t', 'std::vector', 'std::array', 'std::deque', 'std::list', 'std::set', 'std::map', 'std::unordered_map', 'std::unordered_set', 'std::stack', 'std::queue', 'std::pair', 'vector', 'array', 'deque', 'list', 'set', 'map', 'unordered_map', 'unordered_set', 'stack', 'queue', 'pair',
 ])
 
 const TYPE_WORDS = /^(?:(?:const|static|volatile|register|extern|restrict|inline|mutable|constexpr|signed|unsigned|short|long)\s+)*(?:void|bool|char|signed|unsigned|short|int|long|float|double|string|auto|var|size_t|std::string|std::size_t)(?:\s+long|\s+int)?$/
@@ -379,7 +379,7 @@ class Parser {
       if (this.peek().type !== 'id') { this.i = save; return null }
       const name = this.take().value
       let dimensions = []
-      while (this.eat('[')) { dimensions.push(this.parseExpression()); this.expect(']') }
+      while (this.eat('[')) { if (this.is(']')) { this.take(); dimensions.push({type:'flexible', line:this.line()}) } else { dimensions.push(this.parseExpression()); this.expect(']') } }
       let initializer = null
       if (this.eat('=')) initializer = this.is('{') ? this.parseInitializerList() : this.parseExpression()
       else if (this.is('{')) initializer = this.parseInitializerList()
@@ -428,7 +428,7 @@ class Parser {
     if (this.peek().type!=='id') { this.i=save; return null }
     const name=this.take().value
     let dimensions=[]
-    while (this.eat('[')) { dimensions.push(this.parseExpression()); this.expect(']') }
+    while (this.eat('[')) { if (this.is(']')) { this.take(); dimensions.push({type:'flexible', line:this.line()}) } else { dimensions.push(this.parseExpression()); this.expect(']') } }
     let initializer=null
     if (this.eat('=')) initializer=this.is('{') ? this.parseInitializerList() : this.parseExpression()
     else if (this.is('{')) initializer=this.parseInitializerList()
@@ -720,7 +720,7 @@ function extractClassDefs(clean) {
             const n = Number(part[colon + 1]?.value)
             if (Number.isFinite(n)) bitWidth = Math.max(0, Math.trunc(n))
           }
-          def.fields[field.name] = {type:field.dataType, initializer:field.initializer, pointerDepth:field.pointerDepth||0, bitWidth}
+          def.fields[field.name] = {type:field.dataType, initializer:field.initializer, pointerDepth:field.pointerDepth||0, bitWidth, flexible:Array.isArray(field.dimensions) && field.dimensions.some(d => d?.type === 'flexible')}
         }
       } catch {}
       j = endStmt + 1
@@ -946,7 +946,7 @@ function tryGlobalDecl(tokens, i, knownTypes) {
     exprTokens.push({type:'eof',value:'<eof>',line:tokens[k]?.line || start.line})
     try {
       const ep = new Parser(exprTokens, '', knownTypes)
-      initializer = ep.parseExpression()
+      initializer = exprTokens[0]?.value === '{' ? ep.parseInitializerList() : ep.parseExpression()
     } catch { initializer = null }
     j = k
   }
@@ -999,6 +999,7 @@ function parseParams(tokens) {
   for(const t of tokens){if(t.value==='<'||t.value==='(')d++; if(t.value==='>'||t.value===')')d--; if(t.value===','&&d===0){groups.push(cur);cur=[]} else cur.push(t)}
   if(cur.length && !(cur.length===1&&cur[0].value==='void')) groups.push(cur)
   return groups.map(g=>{
+    if (g.some(t=>t.value==='...')) return {name:'__va_args',pointerDepth:0,reference:false,type:'',variadic:true}
     const ids=g.filter(t=>t.type==='id').map(t=>t.value)
     const name=ids[ids.length-1] || `arg${g[0]?.line||0}`
     const pointerDepth=g.filter(t=>t.value==='*').length
