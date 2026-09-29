@@ -1,70 +1,16 @@
-import { runInterpreter, InterpError } from './interpreter'
 import { filesToZipBase64 } from './archive'
 
 const JUDGE0_API_URL = (import.meta.env.VITE_JUDGE0_API_URL || 'https://ce.judge0.com').replace(/\/+$/, '')
 const JUDGE0_API_KEY = import.meta.env.VITE_JUDGE0_API_KEY || ''
 
-const JUDGE0_LANGUAGE_IDS = { c: 50, cpp: 54, csharp: 51 }
+const JUDGE0_LANGUAGE_IDS = { c: 50 }
 
-const MAX_MOCK_LINES = 250
-const MAX_MOCK_CHARS = 30000
 const JUDGE0_POLL_INTERVAL = 250
 const JUDGE0_MAX_POLLS = 60
 
 function fileNameFor(language) {
-  return { c: 'main.c', cpp: 'main.cpp', csharp: 'Program.cs' }[language] || 'main'
+  return language === 'c' ? 'main.c' : 'main'
 }
-
-function checkBraceBalance(code) {
-  let depth = 0
-  for (const ch of code) {
-    if (ch === '{') depth++
-    if (ch === '}') depth--
-    if (depth < 0) return false
-  }
-  return depth === 0
-}
-
-function canAttemptMock(code, stdin = '') {
-  const trimmed = code.trim()
-  if (!trimmed) return false
-  if (trimmed.length > MAX_MOCK_CHARS) return false
-  if (trimmed.split(/\r?\n/).length > MAX_MOCK_LINES) return false
-  return true
-}
-
-function mockResultFromInterpreter({ language, code, files = [], stdin = '', start }) {
-  if (!checkBraceBalance(code)) {
-    return {
-      success: false, stdout: '', stderr: `${fileNameFor(language)}: error: unbalanced braces — a '{' is missing its '}' (or vice versa).`,
-      exitCode: 1, executionTime: Math.round(performance.now() - start), memory: 0, engine: 'mock',
-    }
-  }
-  try {
-    const { stdout } = runInterpreter(code, language, stdin, files)
-    return {
-      success: true, stdout, stderr: '', exitCode: 0,
-      executionTime: Math.round(performance.now() - start),
-      memory: 900 + Math.round(Math.random() * 4000), engine: 'mock',
-    }
-  } catch (err) {
-    if (err instanceof InterpError) {
-      return {
-        success: false, stdout: '',
-        stderr: `${fileNameFor(language)}:${err.line ?? '?'}: error: ${err.message}`,
-        exitCode: 1, executionTime: Math.round(performance.now() - start),
-        memory: 0, engine: 'mock', mockError: true,
-        mockUnsupported: Boolean(err.mockUnsupported),
-      }
-    }
-    return {
-      success: false, stdout: '', stderr: `internal error: ${err.message}`,
-      exitCode: 1, executionTime: Math.round(performance.now() - start),
-      memory: 0, engine: 'mock', mockError: true, mockUnsupported: false,
-    }
-  }
-}
-
 
 function utf8ToBase64(value = '') {
   const bytes = new TextEncoder().encode(String(value))
@@ -116,7 +62,7 @@ function normalizeJudge0Result(data, start) {
   const message = base64ToUtf8(data?.message || '')
   const exitCode = data?.exit_code
   // Judge0 reports any non-zero process return as NZEC (status 11).
-  // In C/C++, returning a non-zero value from main is valid program behavior,
+  // In C, returning a non-zero value from main is valid program behavior,
   // so NZEC must not automatically be treated as a compiler/runtime failure.
   // Keep other runtime statuses (segfault, abort, timeout, etc.) as errors.
   const isAccepted = statusId === 3
@@ -133,14 +79,13 @@ function normalizeJudge0Result(data, start) {
   }
 }
 
-function buildMultiFileScripts(language) {
-  if (language === 'c') {
-    return {
-      compile: `#!/bin/bash
+function buildMultiFileScripts() {
+  return {
+    compile: `#!/bin/bash
 set -e
 sources=()
 for f in ./*.c; do
-  [ -f "$f" ] && sources+=("$f")
+  [ -f "$f" ] && sources+=("\$f")
 done
 if [ "\${#sources[@]}" -eq 0 ]; then
   echo "No C source files found." >&2
@@ -148,47 +93,23 @@ if [ "\${#sources[@]}" -eq 0 ]; then
 fi
 gcc -std=c17 -O0 -g "\${sources[@]}" -o program
 `,
-      run: `#!/bin/bash
+    run: `#!/bin/bash
 exec ./program
 `,
-    }
   }
-  if (language === 'cpp') {
-    return {
-      compile: `#!/bin/bash
-set -e
-sources=()
-for f in ./*.cpp ./*.cc ./*.cxx; do
-  [ -f "$f" ] && sources+=("$f")
-done
-if [ "\${#sources[@]}" -eq 0 ]; then
-  echo "No C++ source files found." >&2
-  exit 1
-fi
-g++ -std=c++17 -O0 -g "\${sources[@]}" -o program
-`,
-      run: `#!/bin/bash
-exec ./program
-`,
-    }
-  }
-  return null
 }
-
 async function runWithJudge0({ language, code, files = [], stdin, start }) {
   const languageId = JUDGE0_LANGUAGE_IDS[language]
   if (!languageId) throw new Error(`Judge0 does not have a configured language ID for "${language}".`)
   const sourceName = files.find((f) => f.content === code)?.name || fileNameFor(language)
   const projectFiles = files.length ? files : [{ name: sourceName, content: code }]
 
-  // Judge0's normal C/C++ language IDs compile exactly one source file.
-  // additional_files can provide headers/data, but it does not turn sibling
-  // .c/.cpp files into translation units. For real multi-file builds use
-  // Judge0's Multi-file program language (ID 89), which executes our compile
-  // and run scripts from the submitted ZIP.
-  const multiFile = language === 'c' || language === 'cpp'
-  if (multiFile && projectFiles.some((f) => f.name !== sourceName && /\.(c|cc|cpp|cxx)$/i.test(f.name))) {
-    const scripts = buildMultiFileScripts(language)
+  // Judge0's normal C language ID compiles one source file. For multi-file
+  // C projects use Judge0's Multi-file program language (ID 89), which runs
+  // our compile and run scripts from the submitted ZIP.
+  const multiFile = language === 'c'
+  if (multiFile && projectFiles.some((f) => f.name !== sourceName && /\.c$/i.test(f.name))) {
+    const scripts = buildMultiFileScripts()
     const additionalFiles = filesToZipBase64([
       ...projectFiles.map((f) => ({ name: f.name, content: f.content })),
       { name: 'compile', content: scripts.compile },
@@ -253,10 +174,7 @@ export async function compileAndRun({ language, code, files = [], stdin = '' }) 
     }
   }
 
-  // C/C++/C# execution uses the real sandboxed compiler/runtime. This is
-  // important for advanced C programs (pointers, structs, arrays, functions,
-  // standard-library APIs, dynamic allocation, etc.) that are outside the
-  // educational interpreter's supported subset.
+  // C execution uses the real sandboxed compiler/runtime.
   try {
     return await runWithJudge0({ language, code, files, stdin, start })
   } catch (err) {

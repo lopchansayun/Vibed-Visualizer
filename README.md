@@ -1,8 +1,6 @@
-# CodeViz — Online Compiler & Code Visualizer
+# CodeViz — Online C Compiler & Visualizer
 
-A React + Vite + Tailwind v4 developer tool: write C, C++, or C# in a Monaco
-editor, run it, and step through a visual execution trace (variables, call
-stack, current line) as the program runs.
+A React + Vite + Tailwind v4 developer tool for writing, compiling, running, and visually stepping through C programs in Monaco.
 
 ## Run it
 
@@ -13,64 +11,22 @@ npm run dev
 
 ## Architecture
 
-- `src/services/compilerService.js` — the frontend's compiler API contract
-  (`compileAndRun({ language, code, stdin })`). C, C++, and C# are compiled and
-  executed through the sandboxed Judge0 runtime. The local interpreter is kept
-  separate for source-level visualization and is not used as the authoritative
-  compiler.
-- `src/services/interpreter.js` — a small educational interpreter used by the
-  source-level visualizer. It supports a controlled subset of C/C++/C# for
-  tracing and is intentionally not used as the real compiler/runtime.
-- `src/services/visualizerService.js` — builds the execution trace consumed
-  by the visualizer, kept independent of `compilerService` so a real
-  instrumentation/debugging backend can replace it later without touching
-  the UI.
-- `src/store/useEditorStore.js` — Zustand store for language, code per
-  language, console state, visualizer/trace state, and theme.
+- `src/services/compilerService.js` — compiles and executes C through Judge0, including multi-file C projects.
+- `src/services/interpreter.js` — entry point for the local educational C interpreter used only to produce visualization state.
+- `src/services/interpreter/runtime.js` — deterministic C execution model that produces stack, heap, call-stack, stdout, and source-line steps.
+- `src/services/interpreter/cParser.js` — C parser and value/type helpers used by the visualizer runtime.
+- `src/services/visualizerService.js` — converts a C project into the trace consumed by the visualizer.
+- `src/store/useEditorStore.js` — Zustand store for C source files, console state, visualizer/trace state, and theme.
 
+## Execution vs visualization
 
-## C/C++ visualizer support
+Judge0 is the authoritative C compiler/runtime. The local interpreter is separate and exists only because Judge0 execution results do not provide the source-level variable/stack/heap trace required by the visualizer.
 
-See `VISUALIZER_SUPPORT.md` for the exact supported/unsupported logic and ready-to-run test programs in `examples/support-tests/`.
+The visualizer currently supports a deterministic educational subset of C. A program may compile and run successfully through Judge0 while still being outside the local visualizer's supported subset.
 
-The visualizer is intentionally a smaller educational interpreter. Code that uses
-unsupported language/library features can still be compiled and run by Judge0,
-but the UI will explicitly show **Visualization not available** instead of
-reporting a misleading trace error.
+## Multi-file C projects
 
-## Notes
-
-- Theme persists via `localStorage` and follows the OS preference on first
-  load.
-- `Ctrl/Cmd+Enter` runs; `Ctrl/Cmd+Shift+Enter` runs and opens the
-  visualizer.
-- The visualizer shows a simulated **stack** and **heap**, side by side,
-  with arrows from pointer variables to whatever they point at (another
-  stack slot for `&x`, or a heap block for `malloc`/`new`). A "Show
-  addresses" switch toggles the fake-but-realistic hex addresses
-  (`0x7ffe...` for stack, `0x55b8...` for heap). Freed blocks (`free`/
-  `delete`) stay visible but dimmed, and a pointer still aimed at one is
-  drawn as a dashed red "dangling pointer" arrow — a small bonus: the
-  interpreter also throws a use-after-free error if you actually
-  dereference one. Supported: `&x`, `*p`, `int* p = &x;`,
-  `malloc(sizeof(T))`, `new T(...)`, `new T[N]`, `free(p)`, `delete p`.
-  Heap arrays are visualized as a single block (not per-element
-  addresses), but common patterns work: array indexing (`arr[i]`),
-  `calloc`/`realloc`, C-style casts (`(int*)malloc(...)`), pointer
-  arithmetic (`*(ptr + n)`), and multi-level pointers (`int** pp = &p;
-  **pp = 5;`).
-  **Not supported:** structs/classes and member access (`.` / `->`),
-  and user-defined functions other than `main()` — calls to them are
-  silently ignored rather than erroring, so code that depends on their
-  side effects (e.g. a function that mutates a value through a pointer)
-  won't show that effect in the trace. Only `main()`'s body is
-  interpreted; there's no real multi-frame call stack yet.
-
-## Multi-file C/C++ projects
-
-Create additional source/header files from the editor's **New** tab action. The Run action treats `main.c` / `main.cpp` as the entry source and sends the whole project to Judge0 as `additional_files`. Other `.c`/`.cpp` translation units are passed to the compiler, while `.h` files are available to normal `#include` directives.
-
-Example:
+Create additional source/header files from the editor's **New** action. A project can contain files such as:
 
 ```text
 main.c
@@ -78,4 +34,11 @@ math.c
 math.h
 ```
 
-`main.c` can use `#include "math.h"` and call functions implemented in `math.c`.
+The compiler path sends the complete project to Judge0's multi-file execution environment. The visualizer can combine C translation units when building its deterministic trace.
+
+## Notes
+
+- C is the only selectable language.
+- Theme persists via `localStorage` and follows the OS preference on first load.
+- `Ctrl/Cmd+Enter` runs; `Ctrl/Cmd+Shift+Enter` runs and opens the visualizer.
+- The visualizer exposes simulated stack/heap addresses and pointer relationships for supported programs.

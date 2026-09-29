@@ -1,8 +1,6 @@
 // Builds an execution trace for the educational visualizer.
 //
-// The visualizer intentionally supports a smaller, deterministic subset than
-// the real compiler. Programs that execute through Judge0 can therefore be
-// valid C/C++/C# while still being outside the visualizer's trace subset.
+// The visualizer builds a deterministic source-level trace for C.
 
 import { runInterpreter, InterpError } from './interpreter'
 

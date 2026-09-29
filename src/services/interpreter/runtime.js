@@ -1,5 +1,4 @@
-import { InterpError, fmtAddr, TYPES, stripCommentsAndPreprocessor, collectFunctions, valueToString, Parser, lex } from './cppParser.js'
-import { normalizeAdvancedCpp, normalizeFunctionPointerDeclarations, normalizePointerToArrayDeclarations } from './advancedFeatures.js'
+import { InterpError, fmtAddr, TYPES, stripCommentsAndPreprocessor, collectFunctions, valueToString, Parser, lex } from './cParser.js'
 
 const MAX_STEPS = 20000
 const MAX_LOOP_ITERATIONS = 50000
@@ -138,13 +137,13 @@ function readScanfToken(source, state) {
   return source.slice(start, state.pos)
 }
 
-export function runInterpreter(code, language='cpp', stdin='', files=[]) {
+export function runInterpreter(code, language='c', stdin='', files=[]) {
   if (language !== 'c') {
     const error = new InterpError(`Native interpreter is only available for C; use Judge0 for ${language}.`)
     error.mockUnsupported = true
     throw error
   }
-  const normalized = language === 'cpp' ? normalizeAdvancedCpp(code) : language === 'c' ? normalizePointerToArrayDeclarations(normalizeFunctionPointerDeclarations(code)) : code
+  const normalized = code
   const fileMap = new Map((files || []).map(f => [f.name, f.content]))
   const expanded = String(normalized).replace(/^\s*#\s*include\s*[\"]([^\"]+\.h)[\"]\s*$/gm, (m, name) => fileMap.has(name) ? `\n/* header: ${name} */\n${fileMap.get(name)}\n` : m)
   const clean=stripCommentsAndPreprocessor(expanded)
@@ -672,7 +671,7 @@ export function runInterpreter(code, language='cpp', stdin='', files=[]) {
       })
       return { __functionRef: true, name: ref.name, bound }
     }
-    // [PATCH 10] Reference capture helper used by advancedFeatures.js.
+    // Reference capture helper for the C execution model.
     if (name === '__make_ref') {
       const lv = lvalue(node.args[0], caller)
       return { __refAddress: lv.address, __refName: node.args[0]?.name || 'ref' }
@@ -1025,11 +1024,11 @@ export function runInterpreter(code, language='cpp', stdin='', files=[]) {
         else { const vals=s.args.map(a=>evalNode(a,frame)); stdout+=vals.map(valueToString).join('')+(s.kind==='WriteLine'?'\n':'') }
         snapshot(s.line,'print output'); return
       }
-      case 'throw': { const value=evalNode(s.expr,frame); snapshot(s.line,`throw ${valueToString(value)}`); throw {__cppThrow:true,value,line:s.line} }
+      case 'throw': { const value=evalNode(s.expr,frame); snapshot(s.line,`throw ${valueToString(value)}`); throw {__cThrow:true,value,line:s.line} }
       case 'try': {
         try { return execStmt(s.body,frame) }
         catch(err) {
-          if(!err?.__cppThrow) throw err
+          if(!err?.__cThrow) throw err
           for(const c of s.catches){
             frame.scopes.push(new Map())
             try { if(c.name) makeSlot(frame,c.name,clone(err.value),{type:c.type||'auto'}); snapshot(c.line,`catch ${c.name||'...'}`); return execStmt(c.body,frame) } finally { frame.scopes.pop() }

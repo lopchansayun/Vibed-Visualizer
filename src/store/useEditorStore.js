@@ -17,16 +17,14 @@ export const useEditorStore = create(
   code: { ...DEFAULT_CODE },
   files: {
     c: [{ name: 'main.c', content: DEFAULT_CODE.c }],
-    cpp: [{ name: 'main.cpp', content: DEFAULT_CODE.cpp }],
-    csharp: [{ name: 'Program.cs', content: DEFAULT_CODE.csharp }],
   },
-  activeFile: { c: 'main.c', cpp: 'main.cpp', csharp: 'Program.cs' },
+  activeFile: { c: 'main.c' },
   input: '',
 
   setLanguage: (language) =>
     set((state) => ({
       language,
-      visualizerOpen: language === 'c' ? state.visualizerOpen : false,
+      visualizerOpen: state.visualizerOpen,
       // keep any edits the user already made per-language
     })),
   setCode: (code) => set((state) => {
@@ -39,7 +37,7 @@ export const useEditorStore = create(
     const language = state.language
     const trimmed = String(name || '').trim()
     if (!trimmed) return {}
-    const ext = `.${language === 'csharp' ? 'cs' : language}`
+    const ext = '.c'
     const safeName = /\.[A-Za-z0-9]+$/.test(trimmed) ? trimmed : `${trimmed}${ext}`
     if ((state.files[language] || []).some((f) => f.name === safeName)) return {}
     const files = [...(state.files[language] || []), { name: safeName, content: String(content) }]
@@ -102,7 +100,7 @@ export const useEditorStore = create(
     set((state) => ({ currentStep: Math.max(state.currentStep - 1, 0) })),
   restartTrace: () => set({ currentStep: 0, isPlaying: false }),
   setIsPlaying: (isPlaying) => set({ isPlaying }),
-  toggleVisualizer: () => set((state) => ({ visualizerOpen: state.language === 'c' ? !state.visualizerOpen : false })),
+  toggleVisualizer: () => set((state) => ({ visualizerOpen: !state.visualizerOpen })),
   toggleConsole: () => set((state) => ({ consoleOpen: !state.consoleOpen })),
 
   // theme
@@ -117,7 +115,7 @@ export const useEditorStore = create(
   {
     name: 'vibedvisualizer-editor-state',
     storage: createJSONStorage(() => localStorage),
-    version: 1,
+    version: 2,
     partialize: (state) => ({
       language: state.language,
       code: state.code,

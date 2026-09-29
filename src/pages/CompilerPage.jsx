@@ -15,10 +15,10 @@ export default function CompilerPage() {
     // Always open the console when execution starts.
     useEditorStore.setState({ consoleOpen: true })
     const projectFiles = files[language] || []
-    const entryName = language === 'c' ? 'main.c' : language === 'cpp' ? 'main.cpp' : 'Program.cs'
+    const entryName = 'main.c'
     const entryFile = projectFiles.find((f) => f.name === entryName) || projectFiles[0]
     const source = entryFile?.content || code[language]
-    const visualizationAvailable = language === 'c' && projectFiles.some((file) => file.name.endsWith('.c'))
+    const visualizationAvailable = projectFiles.some((file) => /\.c$/i.test(file.name))
 
     setActiveConsoleTab('output')
     setStatus('compiling')
