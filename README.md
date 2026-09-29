@@ -400,6 +400,7 @@ vibedvisualizer/
 │   │       ├── VariablePanel.jsx
 │   │       ├── MemoryPanel.jsx
 │   │       ├── CallStack.jsx
+│   │       ├── DSAOverview.jsx
 │   │       └── QueuePanel.jsx
 │   │
 │   ├── config/
@@ -457,6 +458,7 @@ vibedvisualizer/
 | `src/components/visualizer/MemoryPanel.jsx` | Displays simulated stack/heap/memory state. |
 | `src/components/visualizer/CallStack.jsx` | Displays active function frames. |
 | `src/components/visualizer/ExecutionTimeline.jsx` | Displays trace progression. |
+| `src/components/visualizer/DSAOverview.jsx` | Converts arrays, node pointers, trees, matrices, sorting/searching state, and hash-table state into DSA-oriented views. |
 | `src/config/cSupport.js` | Defines the documented C feature/support matrix. |
 | `src/config/languages.js` | Defines C as the available language and default program. |
 | `src/services/archive.js` | Creates the encoded project archive used for multi-file Judge0 submissions. |
@@ -639,6 +641,44 @@ The visualizer is split into independent panels so new visualizations can be add
 The project intentionally focuses on C rather than maintaining separate C++, C#, or unrelated language runtimes.
 
 ---
+
+## DSA Repository Compatibility
+
+CodeViz has been checked against the C implementations and algorithm descriptions in [`NirajBhattarai/DataStructureWithC`](https://github.com/NirajBhattarai/DataStructureWithC). The repository is documentation-heavy: several folders contain `.md` material with embedded C programs, while some advanced folders contain lecture material without a standalone C source file.
+
+### Verified C execution patterns
+
+| Repository topic | CodeViz verification | Visualization |
+| --- | --- | --- |
+| Stack | Array stack operations, push/pop/peek/empty/full | Stack memory + execution trace |
+| Queue | Linear and circular queue operations | Queue panel + array state |
+| Linked list | Dynamic nodes, insertion/deletion/traversal | Linked-node pointer graph + heap |
+| Recursion | Factorial, Fibonacci, recursive calls | Call stack + source steps |
+| Tower of Hanoi | Recursive disk moves | Call stack + output trace |
+| Sorting | Selection, insertion, merge, quick sort patterns | Array state + algorithm/call-stack context |
+| Searching | Sequential and binary search | Array state + execution trace |
+| Hashing | Open addressing / linear probing with heap records | Hash-table array + heap nodes |
+| Binary tree / BST | Node allocation, left/right links, search/traversal/delete patterns | Tree node pointer graph + heap |
+| BFS / DFS | Tree traversal using recursive DFS and queue-based BFS | Tree graph + call/queue state |
+| Huffman | Heap-backed `MinHeapNode` and tree construction pattern | Struct/heap tree visualization |
+| Multidimensional arrays | Matrix/table state | Matrix grid visualization |
+
+### Runtime fixes made for DSA compatibility
+
+The visualization runtime now correctly handles several C idioms used repeatedly by the repository:
+
+- `sizeof(array) / sizeof(array[0])` is parsed as an expression, producing the real array length.
+- `int a[]` function parameters decay to references to the caller's array storage, so sorting/searching functions mutate the original array.
+- Pointer arithmetic over stack arrays uses the element type's stride instead of treating every element as one byte.
+- Dereferencing `&array[index]`, including index `0`, resolves to the actual array element instead of the whole array object.
+- Writes through pointers into stack arrays resolve to the correct element.
+- `(struct Node*)malloc(sizeof(struct Node))` materializes a visualizable struct object rather than an untyped numeric heap block.
+- Struct pointers and `->` access therefore work for linked lists, trees, graphs, hash records and Huffman nodes.
+- Circular queues are displayed correctly when `rear < front` after wrap-around.
+
+### Important repository-scope distinction
+
+A repository folder may contain a topic description without a C implementation. For example, the repository's B-tree, graph, dynamic-programming and divide-and-conquer folders include substantial learning material, but not every topic has a standalone `.c` program in that folder. CodeViz supports the underlying C constructs needed to implement those algorithms, but a topic is only marked as **verified** above when an actual C implementation was available to execute.
 
 ## Current Scope
 

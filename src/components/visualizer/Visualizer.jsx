@@ -5,6 +5,7 @@ import ExecutionControls from './ExecutionControls'
 import ExecutionTimeline from './ExecutionTimeline'
 import VariablePanel from './VariablePanel'
 import QueuePanel from './QueuePanel'
+import DSAOverview from './DSAOverview'
 import MemoryPanel from './MemoryPanel'
 import CallStack from './CallStack'
 import CurrentLineIndicator from './CurrentLineIndicator'
@@ -172,6 +173,7 @@ export default function Visualizer() {
         <ExecutionTimeline steps={steps} currentStep={currentStep} onSelect={(idx) => { setIsPlaying(false); setCurrentStep(idx) }} />
       </div>
 
+      <DSAOverview step={step} />
       <QueuePanel step={step} />
 
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-2">

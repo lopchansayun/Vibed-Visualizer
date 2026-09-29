@@ -90,7 +90,7 @@ export const C_SUPPORT_CATEGORIES = [
       ['Deque', 'supported', 'Array/pointer implementation executes normally.'],
       ['Singly linked list', 'supported', 'Node pointers and heap allocations are traceable.'],
       ['Doubly linked list', 'supported', 'next/prev pointer graphs are representable.'],
-      ['Circular linked list', 'supported', 'Cycles execute; graph rendering is currently limited.'],
+      ['Circular linked list', 'supported', 'Cycles execute with bounded structure traversal in the DSA visualization panel.'],
       ['Binary tree', 'supported', 'Struct pointers support tree nodes.'],
       ['BST', 'supported', 'Insertion/search/deletion logic can execute and trace.'],
       ['Heap / priority queue', 'supported', 'Array or pointer implementations execute.'],
@@ -98,6 +98,8 @@ export const C_SUPPORT_CATEGORIES = [
       ['Graph adjacency matrix', 'supported', '2D arrays are supported.'],
       ['Graph adjacency list', 'supported', 'Linked node structures are supported.'],
       ['Trie', 'supported', 'Struct arrays/pointers can represent trie nodes.'],
+      ['B-tree', 'supported', 'Multi-key tree nodes can be executed when represented with ordinary C structs/arrays; the DSA panel exposes their struct state.'],
+      ['Huffman tree', 'supported', 'Heap-backed nodes with left/right links can be executed and displayed as a tree.'],
     ],
   },
   {
@@ -117,6 +119,8 @@ export const C_SUPPORT_CATEGORIES = [
       ['Greedy algorithms', 'supported', 'Functions, arrays and sorting.'],
       ['Dijkstra / shortest paths', 'supported', 'Graphs, arrays and priority-queue implementations.'],
       ['MST algorithms', 'supported', 'Arrays/graphs and helper structures.'],
+      ['Matrix-chain / table DP', 'supported', 'Multidimensional arrays, nested loops and recursive/table formulations.'],
+      ['Divide-and-conquer algorithms', 'supported', 'Recursive partitioning, merging and order-statistic style implementations.'],
     ],
   },
   {

@@ -501,11 +501,25 @@ class Parser {
       this.expect('(')
       const save = this.i
       let typeParts = []
-      while (this.peek().type === 'id' || this.is('*')) {
-        typeParts.push(this.take().value)
-      }
-      if (this.eat(')') && typeParts.length) {
-        return {type:'sizeof', dataType:typeParts.join(' '), line}
+      // Only treat the contents as a type when the first token is an actual
+      // builtin/user-defined type. `sizeof(arr)` is an expression, not a type
+      // named `arr`; this matters for common C DSA code using
+      // `sizeof(arr) / sizeof(arr[0])`.
+      const first = this.peek().value
+      const isKnownType = this.peek().type === 'id' && (
+        TYPES.has(first) || this.knownTypes.has(first) || first === 'struct' || first === 'union' || first === 'enum'
+      )
+      if (isKnownType) {
+        if (this.is('struct') || this.is('union') || this.is('enum')) {
+          typeParts.push(this.take().value)
+          if (this.peek().type === 'id') typeParts.push(this.take().value)
+        } else {
+          while (this.peek().type === 'id' && (TYPES.has(this.peek().value) || this.knownTypes.has(this.peek().value))) {
+            typeParts.push(this.take().value)
+          }
+        }
+        while (this.is('*')) typeParts.push(this.take().value)
+        if (this.eat(')') && typeParts.length) return {type:'sizeof', dataType:typeParts.join(' '), line}
       }
       this.i = save
       const expr = this.parseExpression()
@@ -516,6 +530,15 @@ class Parser {
     if (this.is('(') && this.peek(1).type==='id' && (TYPES.has(this.peek(1).value) || this.peek(1).value==='unsigned' || this.peek(1).value==='signed')) {
       const save=this.i; this.take(); let parts=[]; while(this.peek().type==='id' || this.is('*')) parts.push(this.take().value); if(this.eat(')')) return {type:'cast',dataType:parts.join(' '),expr:this.parseUnary()}; this.i=save
     }
+    // C casts such as `(struct Node*)malloc(...)` are common in linked
+    // lists, trees, graphs and hash tables. Handle the two-token struct/union
+    // spelling before the single-token user-defined type case.
+    if (this.is('(') && ['struct','union','enum'].includes(this.peek(1).value) && this.peek(2).type==='id') {
+      const save=this.i; this.take(); const keyword=this.take().value; const typeName=this.take().value; let ptr=0; while(this.eat('*'))ptr++
+      if (this.eat(')')) return {type:'cast',dataType:`${keyword} ${typeName}`,pointerDepth:ptr,expr:this.parseUnary()}
+      this.i=save
+    }
+
     // [PATCH 2] Cast to user-defined type.
     if (this.is('(') && this.peek(1).type==='id' && this.knownTypes.has(this.peek(1).value) && (this.peek(2).value===')' || this.peek(2).value==='*')) {
       const save=this.i; this.take(); const typeName=this.take().value; let ptr=0; while(this.eat('*'))ptr++; if(this.eat(')')) return {type:'cast',dataType:typeName,pointerDepth:ptr,expr:this.parseUnary()}; this.i=save
@@ -1012,7 +1035,11 @@ function parseParams(tokens) {
     if (g.some(t=>t.value==='...')) return {name:'__va_args',pointerDepth:0,reference:false,type:'',variadic:true}
     const ids=g.filter(t=>t.type==='id').map(t=>t.value)
     const name=ids[ids.length-1] || `arg${g[0]?.line||0}`
-    const pointerDepth=g.filter(t=>t.value==='*').length
+    // In a C parameter list, `int a[]` and `int *a` both receive a pointer
+    // to the caller's array storage. Treat array parameters as pointer-like
+    // so sorting/searching routines can mutate the original array and pointer
+    // arithmetic can resolve back to the caller's stack allocation.
+    const pointerDepth=g.filter(t=>t.value==='*').length + (g.some(t=>t.value==='[') ? 1 : 0)
     const types=ids.slice(0,-1).join(' ')
     return {name,pointerDepth,reference:g.some(t=>t.value==='&'),type:types}
   })

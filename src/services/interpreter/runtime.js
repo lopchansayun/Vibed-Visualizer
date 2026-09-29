@@ -216,7 +216,7 @@ export function runInterpreter(code, language='c', stdin='', files=[]) {
   function deref(addr,line) {
     if(addr===0 || addr===null || addr===undefined) throw new InterpError('dereferenced null/invalid pointer (segmentation fault)',line)
     const slot=callFrames.flatMap(f=>Array.from(f.values.values())).find(s=>s.address===addr) || Array.from(globals.values()).find(s=>s.address===addr)
-    if(slot) return slot.value
+    if(slot) return Array.isArray(slot.value) ? slot.value[0] : slot.value
     const resolved = resolveAddress(addr)
     if (resolved?.kind === 'stack') return resolved.slot.value[resolved.index]
     const block=findBlock(addr); if(block){if(block.freed)throw new InterpError(`dereferenced freed memory at ${fmtAddr(addr)} (use-after-free)`,line);return Array.isArray(block.value)?block.value[0]:block.value}
@@ -224,12 +224,30 @@ export function runInterpreter(code, language='c', stdin='', files=[]) {
   }
   function writeAddr(addr,value,line) {
     const slot=callFrames.flatMap(f=>Array.from(f.values.values())).find(s=>s.address===addr) || Array.from(globals.values()).find(s=>s.address===addr)
-    if(slot){slot.value=clone(value);return}
+    if(slot){
+      if(Array.isArray(slot.value)) slot.value[0]=clone(value)
+      else slot.value=clone(value)
+      return
+    }
+    const resolved = resolveAddress(addr)
+    if (resolved?.kind === 'stack') {
+      resolved.slot.value[resolved.index] = clone(value)
+      return
+    }
     const block=findBlock(addr); if(block){if(block.freed)throw new InterpError(`write to freed memory at ${fmtAddr(addr)} (use-after-free)`,line); if(Array.isArray(block.value))block.value[0]=clone(value);else block.value=clone(value);return}
     throw new InterpError(`invalid write to ${fmtAddr(addr)} (segmentation fault)`,line)
   }
 
   // [PATCH 5] Resolve a raw address to either a heap block or a stack array element.
+  function stackElementStride(slot) {
+    if (!slot) return 4
+    const t = String(slot.type || '')
+    if (/char|_Bool|bool/.test(t)) return 1
+    if (/double|long|int64_t|uint64_t/.test(t)) return 8
+    if (/short|int16_t|uint16_t/.test(t)) return 2
+    return 4
+  }
+
   function resolveAddress(addr) {
     if (typeof addr !== 'number') return null
     const block = findBlock(addr)
@@ -237,9 +255,11 @@ export function runInterpreter(code, language='c', stdin='', files=[]) {
     const allSlots = [...callFrames.flatMap(f=>Array.from(f.values.values())), ...Array.from(globals.values())]
     for (const slot of allSlots) {
       if (!Array.isArray(slot.value)) continue
-      const idx = addr - slot.address
-      if (idx >= 0 && idx < slot.value.length) {
-        return { kind: 'stack', slot, index: idx, address: addr }
+      const stride = stackElementStride(slot)
+      const delta = addr - slot.address
+      if (delta >= 0 && delta % stride === 0) {
+        const idx = delta / stride
+        if (idx < slot.value.length) return { kind: 'stack', slot, index: idx, address: addr }
       }
     }
     return null
@@ -258,7 +278,8 @@ export function runInterpreter(code, language='c', stdin='', files=[]) {
       if (resolved && resolved.kind === 'stack') {
         const slot = resolved.slot
         const targetIndex = resolved.index + offset
-        return { stackSlot: slot, index: targetIndex, address: slot.address + targetIndex }
+        const stride = stackElementStride(slot)
+        return { stackSlot: slot, index: targetIndex, address: slot.address + targetIndex * stride }
       }
     }
     return null
@@ -290,7 +311,8 @@ export function runInterpreter(code, language='c', stdin='', files=[]) {
         }
         if(idx<0 || (!flexible && idx>=base.length)) throw new InterpError(`index ${idx} out of bounds (size ${base.length})`,node.line)
         if (flexible && idx >= base.length) base.length = idx + 1
-        const address=(targetLV?.address || 0) + idx
+        const stride = stackElementStride(targetLV?.slot)
+        const address=(targetLV?.address || 0) + idx * stride
         return {get:()=>base[idx] ?? 0,set:v=>{base[idx]=clone(v)},address,slot:targetLV?.slot}
       }
       if(typeof base==='string'){
@@ -384,7 +406,16 @@ export function runInterpreter(code, language='c', stdin='', files=[]) {
     method.params.forEach((p,i)=>{
       let v = values[i] ?? 0
       if (!p.pointerDepth && !p.reference && p.type) v = truncateForType(v, p.type, 0)
-      makeSlot(frame,p.name,v,{pointer:p.pointerDepth>0,reference:p.reference,type:'parameter'})
+      // C array parameters decay to pointers to the caller's storage. Preserve
+      // the original array slot address so `&a[i]` and pointer arithmetic in
+      // sorting/searching functions resolve back to the caller's stack array.
+      let parameterAddress = null
+      if (p.pointerDepth > 0 && Array.isArray(v)) {
+        const sourceSlot = [...callFrames.flatMap(f=>Array.from(f.values.values())), ...Array.from(globals.values())]
+          .find(s => s.value === v)
+        parameterAddress = sourceSlot?.address ?? null
+      }
+      makeSlot(frame,p.name,v,{pointer:p.pointerDepth>0,reference:p.reference,type:'parameter',address:parameterAddress})
     })
     // [PATCH 7] Apply constructor initializer list to the object's fields.
     if (method.initList?.length && obj?.__struct) {
@@ -422,6 +453,21 @@ export function runInterpreter(code, language='c', stdin='', files=[]) {
   function evalNode(node,frame) {
     switch(node.type){
       case 'literal':return node.value
+      case 'sizeof': {
+        if (node.dataType) return sizeofType(node.dataType)
+        if (node.expr) {
+          try {
+            const lv=lvalue(node.expr,frame)
+            const v=lv.get()
+            if (Array.isArray(v)) return v.length * stackElementStride(lv.slot)
+            if (lv.slot?.isPointer) return 8
+            return sizeofType(lv.slot?.type || 'int')
+          } catch {
+            return 4
+          }
+        }
+        return 4
+      }
       case 'var':{
         try { const r=resolveVar(node.name,frame); return r.slot.field?r.slot.obj.fields[r.slot.name]:r.slot.value }
         catch {
@@ -768,7 +814,21 @@ export function runInterpreter(code, language='c', stdin='', files=[]) {
     if(['isalpha','isdigit','isalnum','isspace','islower','isupper','tolower','toupper'].includes(name)) { const c=String(evalNode(node.args[0],caller)??'').charAt(0); if(name==='isalpha')return /^[A-Za-z]$/.test(c)?1:0; if(name==='isdigit')return /^[0-9]$/.test(c)?1:0; if(name==='isalnum')return /^[A-Za-z0-9]$/.test(c)?1:0; if(name==='isspace')return /\s/.test(c)?1:0; if(name==='islower')return /^[a-z]$/.test(c)?1:0; if(name==='isupper')return /^[A-Z]$/.test(c)?1:0; if(name==='tolower')return c.toLowerCase().charCodeAt(0)||0; return c.toUpperCase().charCodeAt(0)||0 }
     if(['malloc','calloc','realloc','free'].includes(name)){
       const args=node.args.map(a=>evalNode(a,caller));
-      if(name==='malloc')return allocateHeap(Math.max(1,Math.ceil((args[0]||4)/4)),0,'malloc',{elementSize:1})
+      if(name==='malloc'){
+        const size=Math.max(1,Math.ceil((args[0]||4)/4))
+        const sizeNode=node.args?.[0]
+        const structType=sizeNode?.type==='sizeof' ? resolveTypedef(sizeNode.dataType,functions.__typedefs) : null
+        const def=structType ? functions.__structDefs?.[structType] : null
+        if(def && sizeNode?.type==='sizeof'){
+          const obj={__struct:true,type:structType,fields:{}}
+          const fields=collectClassFields(def,functions.__structDefs)
+          for(const [k,meta] of Object.entries(fields)) obj.fields[k]=meta.initializer ? evalNode(meta.initializer,caller) : 0
+          const addr=allocateHeap(1,obj,'malloc',{elementSize:Math.max(1,sizeofType(structType)),structType})
+          obj.__heapAddress=addr
+          return addr
+        }
+        return allocateHeap(size,0,'malloc',{elementSize:1})
+      }
       if(name==='calloc')return allocateHeap(Math.max(1,Math.trunc(args[0]||1)),0,'calloc',{elementSize:1})
       if(name==='realloc'){const old=args[0], bytes=args[1]||4,b=findBlock(old); if(!b)return allocateHeap(Math.ceil(bytes/4),0,'realloc'); const n=Math.max(1,Math.ceil(bytes/4)),oldArr=Array.isArray(b.value)?b.value:[b.value];b.value=n>1?Array.from({length:n},(_,i)=>oldArr[i]??0):oldArr[0]??0;b.size=n;return old}
       if(name==='free'){const b=findBlock(args[0]);if(b){if(b.freed)throw new InterpError(`double free of ${fmtAddr(args[0])}`,node.line);b.freed=true}return 0}
@@ -843,7 +903,16 @@ export function runInterpreter(code, language='c', stdin='', files=[]) {
       let v = values[i] ?? 0
       if (v && typeof v === 'object' && v.__refAddress !== undefined) v = deref(v.__refAddress, node.line)
       if (!p.pointerDepth && !p.reference && p.type) v = truncateForType(v, p.type, 0)
-      makeSlot(frame,p.name,v,{pointer:p.pointerDepth>0,reference:p.reference,type:'parameter'})
+      // C array parameters decay to pointers to the caller's storage. Preserve
+      // the original array slot address so `&a[i]` and pointer arithmetic in
+      // sorting/searching functions resolve back to the caller's stack array.
+      let parameterAddress = null
+      if (p.pointerDepth > 0 && Array.isArray(v)) {
+        const sourceSlot = [...callFrames.flatMap(f=>Array.from(f.values.values())), ...Array.from(globals.values())]
+          .find(s => s.value === v)
+        parameterAddress = sourceSlot?.address ?? null
+      }
+      makeSlot(frame,p.name,v,{pointer:p.pointerDepth>0,reference:p.reference,type:'parameter',address:parameterAddress})
     })
     frame.__variadicArgs = values.slice(fixedCount)
     frame.__vaCursors = new Map()

@@ -14,8 +14,13 @@ export default function QueuePanel({ step }) {
 
   const front = Math.trunc(frontVar.value)
   const rear = Math.trunc(rearVar.value)
-  const empty = front > rear
-  const items = empty ? [] : queueVar.value.slice(Math.max(0, front), Math.min(queueVar.value.length, rear + 1))
+  const empty = front === -1
+  const circular = !empty && rear < front
+  const items = empty
+    ? []
+    : circular
+      ? [...queueVar.value.slice(front), ...queueVar.value.slice(0, rear + 1)]
+      : queueVar.value.slice(Math.max(0, front), Math.min(queueVar.value.length, rear + 1))
 
   return (
     <section className="shrink-0 rounded-lg border border-border bg-panel p-2.5 sm:p-3">
@@ -39,7 +44,7 @@ export default function QueuePanel({ step }) {
       ) : (
         <div className="flex min-w-0 gap-2 overflow-x-auto pb-1">
           {items.map((value, offset) => {
-            const index = front + offset
+            const index = circular ? (front + offset) % queueVar.value.length : front + offset
             return (
               <div key={index} className="min-w-[64px] rounded-md border border-border-soft bg-panel-raised px-2 py-2 text-center">
                 <div className="text-[9px] font-mono-tight text-text-faint">[{index}]</div>
