@@ -3,6 +3,7 @@ import { Plus, X } from 'lucide-react'
 import Editor from '@monaco-editor/react'
 import { useEditorStore } from '../../store/useEditorStore'
 import { LANGUAGES } from '../../config/languages'
+import { formatSource } from '../../services/codeFormatter'
 
 export default function CodeEditor({ onRun, onRunAndVisualize }) {
   const language = useEditorStore((s) => s.language)
@@ -21,7 +22,7 @@ export default function CodeEditor({ onRun, onRunAndVisualize }) {
   const decorationsRef = useRef([])
 
   const currentLine = trace?.steps?.[currentStep]?.line ?? null
-  const visualizationAvailable = language === 'c'
+  const visualizationAvailable = LANGUAGES[language]?.visualizable === true
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState('')
 
@@ -106,6 +107,28 @@ export default function CodeEditor({ onRun, onRunAndVisualize }) {
               },
             })
             monaco.editor.setTheme(theme === 'dark' ? 'codeviz-dark' : 'codeviz-light')
+            const formatCode = () => {
+              const model = editor.getModel()
+              if (!model) return
+              const original = model.getValue()
+              const formatted = formatSource(original, language)
+              if (formatted !== original) {
+                editor.executeEdits('codeviz-format', [{
+                  range: model.getFullModelRange(),
+                  text: formatted,
+                }])
+                return
+              }
+              editor.getAction('editor.action.formatDocument')?.run()
+            }
+            editor.addAction({
+              id: 'codeviz.format-code',
+              label: 'Format Code',
+              contextMenuGroupId: '1_modification',
+              contextMenuOrder: 1,
+              run: formatCode,
+            })
+            editor.addCommand(monaco.KeyMod.Shift | monaco.KeyCode.Alt | monaco.KeyCode.KeyF, formatCode)
             editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => onRun?.())
             editor.addCommand(
               monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.Enter,

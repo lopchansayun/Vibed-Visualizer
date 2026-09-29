@@ -1,8 +1,9 @@
 import { useCallback, useRef } from 'react'
 import toast from 'react-hot-toast'
 import { useEditorStore } from '../store/useEditorStore'
-import { compileAndRun } from '../services/compilerService'
+import { compileAndRun } from '../services/judge0/compilerService'
 import { buildExecutionTrace } from '../services/visualizerService'
+import { LANGUAGES } from '../config/languages'
 import Header from '../components/layout/Header'
 import Workspace from '../components/layout/Workspace'
 
@@ -15,10 +16,10 @@ export default function CompilerPage() {
     // Always open the console when execution starts.
     useEditorStore.setState({ consoleOpen: true })
     const projectFiles = files[language] || []
-    const entryName = 'main.c'
+    const entryName = LANGUAGES[language]?.fileName || 'main.c'
     const entryFile = projectFiles.find((f) => f.name === entryName) || projectFiles[0]
     const source = entryFile?.content || code[language]
-    const visualizationAvailable = projectFiles.some((file) => /\.c$/i.test(file.name))
+    const visualizationAvailable = LANGUAGES[language]?.visualizable === true
 
     setActiveConsoleTab('output')
     setStatus('compiling')
@@ -60,7 +61,7 @@ export default function CompilerPage() {
         if (runTokenRef.current !== token) return
         setTrace(trace)
         if (!trace.available) toast('Program ran, but this source is outside the visualizer subset.', { icon: 'ℹ️' })
-      } catch (err) {
+      } catch {
         if (runTokenRef.current !== token) return
         setTrace({ steps: [], available: false, message: 'The program ran, but a source-level execution trace could not be built.' })
       }

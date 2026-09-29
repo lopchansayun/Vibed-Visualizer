@@ -16,7 +16,7 @@ export default function Header({ onRun, onRunAndVisualize, onStop, onReset }) {
   const toggleConsole = useEditorStore((s) => s.toggleConsole)
 
   const isBusy = status === 'compiling' || status === 'running'
-  const visualizationAvailable = language === 'c'
+  const visualizationAvailable = LANGUAGES[language]?.visualizable === true
 
   return (
     <header className="flex min-h-13 shrink-0 items-center gap-1.5 overflow-hidden border-b border-border bg-bg-soft px-2 py-2 sm:gap-3 sm:px-3">
@@ -57,18 +57,18 @@ export default function Header({ onRun, onRunAndVisualize, onStop, onReset }) {
           title={visualizationAvailable ? 'Visualize C execution' : 'Visualization only available for C'}
           showLabel={false}
         />
-        <span className="hidden sm:inline-flex"><IconButton icon={RotateCcw} label="Reset" onClick={onReset} showLabel={false} /></span>
+        <IconButton icon={RotateCcw} label="Reset" onClick={onReset} showLabel={false} />
       </div>
 
       <div className="min-w-0 flex-1" />
 
       <Link
-        to="/c-support"
+        to="/support"
         className="flex h-8 shrink-0 items-center gap-1 rounded-md border border-border px-2 text-[11px] font-medium text-text-muted hover:text-text sm:px-2.5 sm:text-xs"
-        title="See C project and DSA support"
+        title="See language and C/DSA support"
       >
         <FileCode2 size={13} />
-        <span className="hidden sm:inline">C Support</span>
+        <span className="hidden sm:inline">Support</span>
       </Link>
 
       <button

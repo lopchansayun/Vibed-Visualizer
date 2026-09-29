@@ -3,7 +3,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
 import { useEditorStore } from './store/useEditorStore'
 import CompilerPage from './pages/CompilerPage'
-import CProjectSupportPage from './pages/CProjectSupportPage'
+import SupportPage from './pages/SupportPage'
 
 export default function App() {
   const theme = useEditorStore((s) => s.theme)
@@ -17,7 +17,8 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<CompilerPage />} />
-        <Route path="/c-support" element={<CProjectSupportPage />} />
+        <Route path="/support" element={<SupportPage />} />
+        <Route path="/c-support" element={<SupportPage />} />
       </Routes>
       <Toaster
         position="bottom-right"

@@ -87,7 +87,6 @@ export default function Visualizer() {
     setBox({ width: container.clientWidth, height: container.scrollHeight })
 
     const next = []
-    const isTwoColumn = container.clientWidth >= 640
     for (const v of step.stack) {
       if (!v.isPointer) continue
       const sourceEl = rowRefs.current.get(v.address)

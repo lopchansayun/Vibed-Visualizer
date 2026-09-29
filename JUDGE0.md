@@ -1,8 +1,6 @@
-# CodeViz — Judge0 C execution
+# CodeViz — Judge0 execution
 
-CodeViz uses Judge0 as the authoritative compiler/runtime for C programs. The
-local educational interpreter is separate and is used only to produce the
-source-level trace consumed by the visualizer.
+CodeViz uses Judge0 as the authoritative compiler/runtime. The local C interpreter is separate and is used only to produce source-level trace data for the visualizer.
 
 ## Configuration
 
@@ -13,31 +11,65 @@ VITE_JUDGE0_API_URL=https://ce.judge0.com
 # VITE_JUDGE0_API_KEY=
 ```
 
-Restart Vite after changing environment variables.
+The frontend calls the configured Judge0 endpoint directly. A frontend `VITE_*` key is public by design; do not place a private credential in the browser bundle. Use a backend proxy when your deployment requires a secret.
 
-The configured Judge0 language mapping is:
+## Configured Judge0 CE languages
 
-| CodeViz | Judge0 |
-|---|---:|
-| C | 50 — C (GCC) |
+The IDs below follow the Judge0 CE v1.13.1 language list. A self-hosted or customized Judge0 deployment can expose a different set, so the configured endpoint remains the source of truth. Judge0 documents support for 60+ languages overall and exposes `/languages/` to list active languages.
 
-For multi-file C projects, CodeViz uses Judge0's multi-file program language
-(ID 89) with generated `compile` and `run` scripts.
+| CodeViz key | Language | Judge0 ID | Visualization |
+|---|---|---:|---|
+| `c` | C (GCC) | 50 | Yes |
+| `basic` | Basic | 47 | No |
+| `cpp` | C++ (GCC) | 54 | No |
+| `csharp` | C# | 51 | No |
+| `java` | Java | 62 | No |
+| `javascript` | JavaScript (Node.js) | 63 | No |
+| `typescript` | TypeScript | 74 | No |
+| `python` | Python 3 | 71 | No |
+| `python2` | Python 2 | 70 | No |
+| `ruby` | Ruby | 72 | No |
+| `rust` | Rust | 73 | No |
+| `go` | Go | 60 | No |
+| `php` | PHP | 68 | No |
+| `bash` | Bash | 46 | No |
+| `lua` | Lua | 64 | No |
+| `haskell` | Haskell | 61 | No |
+| `fortran` | Fortran | 59 | No |
+| `pascal` | Pascal | 67 | No |
+| `d` | D | 56 | No |
+| `elixir` | Elixir | 57 | No |
+| `erlang` | Erlang | 58 | No |
+| `commonlisp` | Common Lisp | 55 | No |
+| `ocaml` | OCaml | 65 | No |
+| `octave` | Octave | 66 | No |
+| `prolog` | Prolog | 69 | No |
+| `assembly` | Assembly (NASM) | 45 | No |
 
-## Browser execution
+The IDs above are the active language examples documented by Judge0 CE; CodeViz intentionally selects one practical compiler entry per language rather than exposing archived duplicate versions.
 
-The current frontend calls Judge0 directly. A `VITE_*` API key is therefore
-public in the browser bundle. Do not put a valuable private credential in the
-frontend. If your Judge0 deployment requires a secret key, put a small backend
-proxy in front of it.
+## Multi-file behavior
 
-## What happens when Run is clicked?
+Judge0 supports multi-file submissions. CodeViz uses Judge0's **Multi-file program** language (ID 89) for C projects containing more than one `.c` source file. It generates a small `compile` script using GCC and a `run` script, then submits the project ZIP as `additional_files`. Judge0 documents the Multi-file Program workflow and ID 89.
 
-`src/services/compilerService.js` submits the C source/project to Judge0 and
-polls until the submission leaves `In Queue` / `Processing`. The response is
-normalized into the existing output model containing stdout, stderr, exit code,
-execution time, memory, and Judge0 status.
+For non-C languages, CodeViz uses the selected language's normal Judge0 ID. Additional project files can be supplied as `additional_files` where the selected Judge0 runtime supports that workflow.
 
-The Judge0 response is **not** used as the visualizer trace: normal Judge0
-execution results do not contain the variable/stack/heap snapshots required by
-the visualizer.
+## Run flow
+
+1. The active editor file is selected as `source_code`.
+2. Other project files are packaged as Judge0 `additional_files` when applicable.
+3. CodeViz creates a submission.
+4. The frontend polls until Judge0 leaves `In Queue` / `Processing`.
+5. The result is normalized into stdout, stderr, exit code, execution time, memory, and Judge0 status.
+
+Judge0's submission API requires a `language_id` and supports standard input, compiler options, command-line arguments, resource limits, and additional files.
+
+## Visualization boundary
+
+Judge0 results do not provide the variable/stack/heap snapshots needed for CodeViz's source-level visualization. Therefore:
+
+- **C:** Run + Visualize.
+- **All other configured languages:** Run only.
+- The Visualize button is disabled whenever a non-C language is selected.
+
+This separation prevents the UI from implying that a C-specific educational interpreter can faithfully trace another language.
