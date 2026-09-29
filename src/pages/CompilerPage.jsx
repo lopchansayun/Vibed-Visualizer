@@ -59,7 +59,7 @@ export default function CompilerPage() {
         const trace = await buildExecutionTrace({ language, code: source, files: projectFiles, stdin: input })
         if (runTokenRef.current !== token) return
         setTrace(trace)
-        if (!trace.available) toast(trace.message || 'The source-level visualizer could not build an execution trace.', { icon: 'ℹ️', duration: 5000 })
+        if (!trace.available) toast('Program ran, but this source is outside the visualizer subset.', { icon: 'ℹ️' })
       } catch (err) {
         if (runTokenRef.current !== token) return
         setTrace({ steps: [], available: false, message: 'The program ran, but a source-level execution trace could not be built.' })

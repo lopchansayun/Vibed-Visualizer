@@ -23,29 +23,14 @@ export async function buildExecutionTrace({ language, code, files = [], stdin = 
     const projectCode = ordered.length > 1
       ? ordered.map((file) => `\n/* --- ${file.name} --- */\n${file.content}\n`).join('\n')
       : code
-    try {
-      const { steps } = runInterpreter(projectCode, language, stdin, files)
-      return { steps, available: true, message: '' }
-    } catch (projectErr) {
-      // If separate .c translation units cannot be concatenated into one
-      // educational trace, still visualize the active entry file when it is
-      // independently supported. Native compilation/linking remains separate.
-      if (ordered.length > 1) {
-        try {
-          const { steps } = runInterpreter(code, language, stdin, files)
-          return { steps, available: true, message: '' }
-        } catch {
-          // Keep the project-level diagnostic below.
-        }
-      }
-      throw projectErr
-    }
+    const { steps } = runInterpreter(projectCode, language, stdin, files)
+    return { steps, available: true, message: '' }
   } catch (err) {
     if (err instanceof InterpError) {
       return {
         steps: [],
         available: false,
-        message: `Source-level visualization failed at line ${err.line ?? '?'}: ${err.message}`,
+        message: `Source-level visualization is not available for this program: ${err.message}`,
         line: err.line ?? null,
       }
     }

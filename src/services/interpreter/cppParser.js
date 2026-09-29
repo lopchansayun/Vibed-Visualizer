@@ -232,14 +232,14 @@ class Parser {
     const line=this.line()
     if (this.is('{')) return {type:'block', line, body:this.parseBlock()}
     if (this.is('if')) {
-      this.take(); this.expect('('); const cond=this.parseExpression(); this.expect(')')
+      this.take(); const cond=this.parseParenthesizedExpression()
       const then=this.parseStatement(); let otherwise=null
       if (this.eat('else')) otherwise=this.parseStatement()
       return {type:'if',line,cond,then,else:otherwise}
     }
     if (this.is('for')) return this.parseFor()
-    if (this.is('while')) { this.take(); this.expect('('); const cond=this.parseExpression(); this.expect(')'); return {type:'while',line,cond,body:this.parseStatement()} }
-    if (this.is('do')) { this.take(); const body=this.parseStatement(); this.expect('while'); this.expect('('); const cond=this.parseExpression(); this.expect(')'); this.eat(';'); return {type:'do',line,body,cond} }
+    if (this.is('while')) { this.take(); const cond=this.parseParenthesizedExpression(); return {type:'while',line,cond,body:this.parseStatement()} }
+    if (this.is('do')) { this.take(); const body=this.parseStatement(); this.expect('while'); const cond=this.parseParenthesizedExpression(); this.eat(';'); return {type:'do',line,body,cond} }
     if (this.is('switch')) return this.parseSwitch()
     if (this.is('throw')) { this.take(); const expr=this.is(';') ? {type:'literal',value:0} : this.parseExpression(); this.expect(';'); return {type:'throw',line,expr} }
     if (this.is('try')) return this.parseTry()
@@ -354,7 +354,7 @@ class Parser {
   }
 
   parseSwitch() {
-    const line=this.line(); this.take(); this.expect('('); const expr=this.parseExpression(); this.expect(')'); this.expect('{')
+    const line=this.line(); this.take(); const expr=this.parseParenthesizedExpression(); this.expect('{')
     const cases=[]; let current=null
     while (!this.is('}') && this.peek().type!=='eof') {
       const l=this.line()
@@ -461,6 +461,17 @@ class Parser {
   }
 
   skipBalanced(a,b) { let d=0; do { const v=this.take().value; if(v===a)d++; if(v===b)d-- } while(d>0 && this.peek().type!=='eof') }
+
+  // Parse a condition/expression enclosed by a syntactic pair of parentheses.
+  // Keeping the delimiter handling here prevents nested conditions such as
+  // if ((a == b) || (c == d && e == f)) from leaking a closing ')' into the
+  // outer statement parser.
+  parseParenthesizedExpression() {
+    this.expect('(')
+    const expr = this.parseExpression()
+    this.expect(')')
+    return expr
+  }
 
   parseExpression() { return this.parseAssignment() }
   parseAssignment() {
