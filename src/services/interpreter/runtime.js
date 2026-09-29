@@ -202,7 +202,15 @@ export function runInterpreter(code, language='cpp', stdin='') {
     if(!address){address=STACK_BASE-stackAddressCount*STACK_STRIDE;stackAddressCount++}
     const slot={name,value,address,isPointer:pointer,reference,type}; frame.values.set(name,slot); frame.scopes.at(-1).set(name,slot); return slot
   }
-  function frameVars(){return callFrames.flatMap(f=>Array.from(f.values.values()).map(s=>({name:s.name,value:clone(s.value),address:s.address,isPointer:s.isPointer,type:s.type,reference:s.reference}))).filter((v,i,a)=>a.findIndex(x=>x.address===v.address)===i)}
+  function frameVars(){
+    const locals = callFrames.flatMap(f => Array.from(f.values.values()).map(s => ({
+      name:s.name,value:clone(s.value),address:s.address,isPointer:s.isPointer,type:s.type,reference:s.reference,scope:'local'
+    })))
+    const globalVars = Array.from(globals.values()).map(s => ({
+      name:s.name,value:clone(s.value),address:s.address,isPointer:s.isPointer,type:s.type,reference:s.reference,scope:'global'
+    }))
+    return [...locals, ...globalVars].filter((v,i,a)=>a.findIndex(x=>x.address===v.address)===i)
+  }
 
   function deref(addr,line) {
     if(addr===0 || addr===null || addr===undefined) throw new InterpError('dereferenced null/invalid pointer (segmentation fault)',line)
@@ -969,9 +977,19 @@ export function runInterpreter(code, language='cpp', stdin='') {
     for (const g of functions.__globals) {
       let value = 0
       try {
+        const fakeFrame = { line: g.line, scopes: [new Map()], values: new Map() }
         if (g.initializer) {
-          const fakeFrame = { line: g.line, scopes: [new Map()], values: new Map() }
           value = evalNode(g.initializer, fakeFrame)
+        } else if (g.dimensions?.length) {
+          // Globals follow the same array semantics as local declarations.
+          // This is important for common C data structures such as
+          // `int queue[SIZE];` used by hand-written queue implementations.
+          const dims = g.dimensions.map(d => Math.max(1, Math.trunc(evalNode(d, fakeFrame))))
+          const build = (level) => {
+            if (level === dims.length - 1) return Array.from({length: dims[level]}, () => 0)
+            return Array.from({length: dims[level]}, () => build(level + 1))
+          }
+          value = build(0)
         }
       } catch {}
       value = truncateForType(value, g.dataType, g.pointerDepth)

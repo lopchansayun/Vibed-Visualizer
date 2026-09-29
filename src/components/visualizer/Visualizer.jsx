@@ -4,6 +4,7 @@ import { useEditorStore } from '../../store/useEditorStore'
 import ExecutionControls from './ExecutionControls'
 import ExecutionTimeline from './ExecutionTimeline'
 import VariablePanel from './VariablePanel'
+import QueuePanel from './QueuePanel'
 import MemoryPanel from './MemoryPanel'
 import CallStack from './CallStack'
 import CurrentLineIndicator from './CurrentLineIndicator'
@@ -170,6 +171,8 @@ export default function Visualizer() {
       <div className="min-h-0 shrink-0">
         <ExecutionTimeline steps={steps} currentStep={currentStep} onSelect={(idx) => { setIsPlaying(false); setCurrentStep(idx) }} />
       </div>
+
+      <QueuePanel step={step} />
 
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-2">
         <div className="text-[11px] font-medium uppercase tracking-wide text-text-faint">Memory</div>

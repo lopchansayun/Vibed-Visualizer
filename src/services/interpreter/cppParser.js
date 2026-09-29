@@ -407,7 +407,19 @@ class Parser {
       if (this.peek().type === 'id') typeParts.push(this.take().value)
       if (this.is('<')) this.skipBalanced('<','>')
     }
-    while (this.peek().type==='id' && (TYPES.has(this.peek().value) || ['struct','union','enum'].includes(this.peek().value))) { typeParts.push(this.take().value); if (this.is('<')) { this.skipBalanced('<','>') } if (this.is('*')) break }
+    // Do not greedily consume an identifier that merely happens to share a
+    // name with an STL type (e.g. `int queue[SIZE]`). Once a concrete type
+    // has been read, only consume the second token for multi-word primitive
+    // spellings such as `long long` or `unsigned int`.
+    while (this.peek().type==='id' && (TYPES.has(this.peek().value) || ['struct','union','enum'].includes(this.peek().value))) {
+      const nextType = this.peek().value
+      const canExtend = typeParts.length === 0 ||
+        (['long','short','signed','unsigned'].includes(typeParts.at(-1)) && ['long','short','int','char'].includes(nextType))
+      if (!canExtend) break
+      typeParts.push(this.take().value)
+      if (this.is('<')) { this.skipBalanced('<','>') }
+      if (this.is('*')) break
+    }
     if (!typeParts.length && this.peek().value==='std' && this.peek(1).value==='::' && this.peek(2).type==='id') { typeParts.push(`std::${this.peek(2).value}`); this.take(); this.take(); this.take(); if(this.is('<')) this.skipBalanced('<','>') }
     if (!typeParts.length && !(this.peek().type==='id' && (this.peek(1).type==='id' || this.peek(1).value==='*' || this.peek(1).value==='&'))) { this.i=save; return null }
     if (!typeParts.length && this.peek().type==='id' && (this.knownTypes.has(this.peek().value) || this.peek(1).type==='id')) typeParts.push(this.take().value)
@@ -884,7 +896,11 @@ function tryGlobalDecl(tokens, i, knownTypes) {
     typeParts.push(tokens[j].value); j++
   }
   while (j < tokens.length && tokens[j].type === 'id' && (TYPES.has(tokens[j].value) || knownTypes.has(tokens[j].value))) {
-    typeParts.push(tokens[j].value)
+    const nextType = tokens[j].value
+    const canExtend = typeParts.length === 0 ||
+      (['long','short','signed','unsigned'].includes(typeParts.at(-1)) && ['long','short','int','char'].includes(nextType))
+    if (!canExtend) break
+    typeParts.push(nextType)
     j++
   }
   if (!typeParts.length) return null
@@ -895,9 +911,25 @@ function tryGlobalDecl(tokens, i, knownTypes) {
   j++
   let dimensions = []
   while (tokens[j]?.value === '[') {
+    // Keep the actual dimension expression for global arrays. Previously the
+    // parser only skipped over [SIZE], causing globals such as
+    // `int queue[SIZE];` to be initialized as a scalar instead of an array.
     let depth = 1, k = j + 1
-    while (k < tokens.length && depth > 0) { if (tokens[k].value === '[') depth++; if (tokens[k].value === ']') depth--; k++ }
-    j = k
+    const exprStart = k
+    while (k < tokens.length && depth > 0) {
+      if (tokens[k].value === '[') depth++
+      if (tokens[k].value === ']') depth--
+      if (depth > 0) k++
+    }
+    const exprTokens = tokens.slice(exprStart, k)
+    exprTokens.push({type:'eof', value:'<eof>', line:tokens[k]?.line || start.line})
+    try {
+      const ep = new Parser(exprTokens, '', knownTypes)
+      dimensions.push(ep.parseExpression())
+    } catch {
+      dimensions.push({type:'literal', value:1, line:start.line})
+    }
+    j = k + 1
   }
   if (!['=', ';', ','].includes(tokens[j]?.value)) return null
   let initializer = null
@@ -926,6 +958,21 @@ function tryGlobalDecl(tokens, i, knownTypes) {
       let p2 = 0
       while (tokens[k]?.value === '*') { p2++; k++ }
       const n2 = tokens[k]?.value; k++
+      let dims2 = []
+      while (tokens[k]?.value === '[') {
+        let depth = 1, d = k + 1
+        const exprStart = d
+        while (d < tokens.length && depth > 0) {
+          if (tokens[d].value === '[') depth++
+          if (tokens[d].value === ']') depth--
+          if (depth > 0) d++
+        }
+        const exprTokens = tokens.slice(exprStart, d)
+        exprTokens.push({type:'eof', value:'<eof>', line:tokens[d]?.line || start.line})
+        try { const ep = new Parser(exprTokens, '', knownTypes); dims2.push(ep.parseExpression()) }
+        catch { dims2.push({type:'literal', value:1, line:start.line}) }
+        k = d + 1
+      }
       let init2 = null
       if (tokens[k]?.value === '=') {
         let depth = 0, s2 = k + 1
@@ -940,7 +987,7 @@ function tryGlobalDecl(tokens, i, knownTypes) {
         exprTokens.push({type:'eof',value:'<eof>',line:tokens[k]?.line || start.line})
         try { const ep = new Parser(exprTokens, '', knownTypes); init2 = ep.parseExpression() } catch {}
       }
-      decls.push({type:'decl',name:n2,dataType:typeParts.join(' '),pointerDepth:p2,dimensions:[],initializer:init2,reference:false,line:start.line})
+      decls.push({type:'decl',name:n2,dataType:typeParts.join(' '),pointerDepth:p2,dimensions:dims2,initializer:init2,reference:false,line:start.line})
     }
     return { decl: { multi: decls, line: start.line }, end: k }
   }
