@@ -4,7 +4,7 @@
 
 import { runInterpreter, InterpError } from './interpreter'
 
-export async function buildExecutionTrace({ language, code, files = [], stdin = '' }) {
+export async function buildExecutionTrace({ language, code, files = [], stdin = '', entryName }) {
   if (language !== 'c') {
     return { steps: [], available: false, message: 'Visualization is only available for native C.' }
   }
@@ -15,9 +15,8 @@ export async function buildExecutionTrace({ language, code, files = [], stdin = 
     // are stripped by the interpreter, so concatenating source units keeps
     // the educational trace deterministic without requiring a full linker.
     const cFiles = files.filter((file) => /\.c$/i.test(file.name))
-    const ordered = cFiles.some((file) => file.name === 'main.c')
-      ? [cFiles.find((file) => file.name === 'main.c'), ...cFiles.filter((file) => file.name !== 'main.c')]
-      : cFiles
+    const entry = cFiles.find((file) => file.name === entryName)
+    const ordered = entry ? [entry, ...cFiles.filter((file) => file !== entry)] : cFiles
     const projectCode = ordered.length > 1
       ? ordered.map((file) => `\n/* --- ${file.name} --- */\n${file.content}\n`).join('\n')
       : code

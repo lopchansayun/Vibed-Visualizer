@@ -144,7 +144,12 @@ export function runInterpreter(code, language='c', stdin='', files=[]) {
     throw error
   }
   const normalized = code
-  const fileMap = new Map((files || []).map(f => [f.name, f.content]))
+  const fileMap = new Map()
+  for (const f of (files || [])) {
+    fileMap.set(f.name, f.content)
+    const base = f.name.slice(f.name.lastIndexOf('/') + 1)
+    if (!fileMap.has(base)) fileMap.set(base, f.content)
+  }
   const expanded = String(normalized).replace(/^\s*#\s*include\s*[\"]([^\"]+\.h)[\"]\s*$/gm, (m, name) => fileMap.has(name) ? `\n/* header: ${name} */\n${fileMap.get(name)}\n` : m)
   const clean=stripCommentsAndPreprocessor(expanded)
   let functions

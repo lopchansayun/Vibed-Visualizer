@@ -6,6 +6,8 @@ import { buildExecutionTrace } from '../services/visualizerService'
 import { LANGUAGES } from '../config/languages'
 import Header from '../components/layout/Header'
 import Workspace from '../components/layout/Workspace'
+import { baseName } from '../utils/paths'
+import { analyzeAndFixC, formatAnalyzerReport } from '../services/cCodeAnalyzer'
 
 export default function CompilerPage() {
   const runTokenRef = useRef(0)
@@ -17,7 +19,11 @@ export default function CompilerPage() {
     useEditorStore.setState({ consoleOpen: true })
     const projectFiles = files[language] || []
     const entryName = LANGUAGES[language]?.fileName || 'main.c'
-    const entryFile = projectFiles.find((f) => f.name === entryName) || projectFiles[0]
+    const activeName = useEditorStore.getState().activeFile[language]
+    const entryFile = projectFiles.find((f) => f.name === entryName)
+      || projectFiles.find((f) => baseName(f.name) === entryName)
+      || projectFiles.find((f) => f.name === activeName)
+      || projectFiles[0]
     const source = entryFile?.content || code[language]
     const visualizationAvailable = LANGUAGES[language]?.visualizable === true
 
@@ -26,7 +32,7 @@ export default function CompilerPage() {
 
     let result
     try {
-      result = await compileAndRun({ language, code: source, files: files[language], stdin: input })
+      result = await compileAndRun({ language, code: source, files: files[language], entryName: entryFile?.name, stdin: input })
     } catch {
       if (runTokenRef.current !== token) return
       setStatus('network-error')
@@ -57,7 +63,7 @@ export default function CompilerPage() {
         return
       }
       try {
-        const trace = await buildExecutionTrace({ language, code: source, files: projectFiles, stdin: input })
+        const trace = await buildExecutionTrace({ language, code: source, files: projectFiles, entryName: entryFile?.name, stdin: input })
         if (runTokenRef.current !== token) return
         setTrace(trace)
         if (!trace.available) toast('Program ran, but this source is outside the visualizer subset.', { icon: 'ℹ️' })
@@ -69,6 +75,28 @@ export default function CompilerPage() {
   }, [])
 
   const handleRun = () => run({ withVisualizer: false })
+  const handleAnalyzeC = () => {
+    const state = useEditorStore.getState()
+    if (state.language !== 'c') {
+      toast('Code analysis is currently available for C only.', { icon: 'ℹ️' })
+      return
+    }
+    const source = state.code.c || ''
+    const result = analyzeAndFixC(source)
+    if (result.changed) state.setCode(result.code)
+    state.setOutput({
+      stdout: formatAnalyzerReport(result),
+      stderr: '',
+      exitCode: null,
+      executionTime: null,
+      memory: null,
+      engine: 'c-analyzer',
+    })
+    state.setActiveConsoleTab('output')
+    state.setStatus('idle')
+    useEditorStore.setState({ consoleOpen: true })
+    toast.success(result.changed ? `Analysis complete — ${result.fixes.length} safe fix(s) applied.` : 'Analysis complete — no automatic fixes were needed.')
+  }
   const handleRunAndVisualize = () => run({ withVisualizer: true })
   const handleStop = () => {
     runTokenRef.current++
@@ -86,6 +114,7 @@ export default function CompilerPage() {
     <div className="flex h-screen flex-col overflow-hidden">
       <Header
         onRun={handleRun}
+        onAnalyzeC={handleAnalyzeC}
         onRunAndVisualize={handleRunAndVisualize}
         onStop={handleStop}
         onReset={handleReset}

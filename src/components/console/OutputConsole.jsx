@@ -1,4 +1,4 @@
-import { Copy, Trash2, Loader2, CheckCircle2, XCircle, WifiOff } from 'lucide-react'
+import { Copy, Trash2, Loader2, CheckCircle2, XCircle, WifiOff, Info, RotateCcw } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useEditorStore } from '../../store/useEditorStore'
 
@@ -62,6 +62,8 @@ export default function OutputConsole() {
   const activeTab = useEditorStore((s) => s.activeConsoleTab)
   const setActiveTab = useEditorStore((s) => s.setActiveConsoleTab)
   const clearConsole = useEditorStore((s) => s.clearConsole)
+
+  const clearInput = () => setInput('')
 
   const hasError = status === 'compile-error' || status === 'runtime-error' || status === 'network-error'
 
@@ -138,12 +140,32 @@ export default function OutputConsole() {
         )}
 
         {activeTab === 'input' && (
-          <textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="Program stdin (optional)…"
-            className="h-full w-full resize-none bg-transparent text-text outline-none placeholder:text-text-faint"
-          />
+          <div className="flex h-full min-h-0 flex-col gap-2">
+            <div className="flex shrink-0 items-start gap-2 rounded-md border border-border-soft bg-panel px-2.5 py-2 text-xs text-text-muted">
+              <Info size={14} className="mt-0.5 shrink-0 text-blue" />
+              <div className="min-w-0">
+                <div className="font-medium text-text">Program input (stdin)</div>
+                <div className="mt-0.5 leading-relaxed">Enter the values your program should receive when it uses <code className="rounded bg-panel-raised px-1 text-text">scanf</code>, <code className="rounded bg-panel-raised px-1 text-text">cin</code>, or another stdin function. Values are supplied in order when you press Run.</div>
+              </div>
+              <button
+                onClick={clearInput}
+                title="Clear input"
+                aria-label="Clear input"
+                className="shrink-0 rounded p-1 text-text-muted hover:bg-panel-raised hover:text-text"
+              >
+                <RotateCcw size={13} />
+              </button>
+            </div>
+            <textarea
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder={'Example:\n10\n20'}
+              spellCheck="false"
+              aria-label="Program standard input"
+              className="min-h-[90px] flex-1 w-full resize-none rounded-md border border-border-soft bg-panel-raised px-3 py-2 font-mono-tight text-[13px] leading-relaxed text-text outline-none placeholder:text-text-faint focus:border-blue"
+            />
+            <div className="shrink-0 text-[11px] text-text-faint">Tip: separate multiple values with spaces or new lines. For example, <span className="font-mono-tight text-text-muted">10 20</span> works for <span className="font-mono-tight text-text-muted">scanf("%d %d", &amp;a, &amp;b)</span>.</div>
+          </div>
         )}
       </div>
     </div>

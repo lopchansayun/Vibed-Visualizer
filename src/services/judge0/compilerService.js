@@ -92,14 +92,18 @@ function multiFileScripts() {
     compile: `#!/bin/bash
 set -e
 sources=()
-for f in ./*.c; do
-  [ -f "$f" ] && sources+=("$f")
-done
+includes=(-I.)
+while IFS= read -r f; do
+  sources+=("$f")
+done < <(find . -name '*.c' -type f | sort)
+while IFS= read -r d; do
+  includes+=("-I$d")
+done < <(find . -type d | sort)
 if [ "\${#sources[@]}" -eq 0 ]; then
   echo "No C source files found." >&2
   exit 1
 fi
-gcc -std=c17 -O0 -g "\${sources[@]}" -o program
+gcc -std=c17 -O0 -g "\${includes[@]}" "\${sources[@]}" -o program -lm
 `,
     run: '#!/bin/bash\nexec ./program\n',
   }
@@ -114,12 +118,12 @@ async function submit(payload, start) {
   return pollSubmission(submission.token, start)
 }
 
-async function runProject({ language, code, files, stdin, start }) {
+async function runProject({ language, code, files, stdin, start, entryName }) {
   const definition = LANGUAGES[language]
   if (!definition?.judge0Id) throw new Error(`Judge0 language is not configured for "${language}".`)
 
   const projectFiles = files.length ? files : [{ name: definition.fileName, content: code }]
-  const sourceName = projectFiles.find(file => file.name === definition.fileName)?.name || projectFiles.find(file => file.content === code)?.name || definition.fileName
+  const sourceName = entryName || projectFiles.find(file => file.name === definition.fileName)?.name || projectFiles.find(file => file.content === code)?.name || definition.fileName
 
   if (language === 'c' && projectFiles.some(file => file.name !== sourceName && /\.c$/i.test(file.name))) {
     const scripts = multiFileScripts()
@@ -140,14 +144,14 @@ async function runProject({ language, code, files, stdin, start }) {
   }, start)
 }
 
-export async function compileAndRun({ language, code, files = [], stdin = '' }) {
+export async function compileAndRun({ language, code, files = [], stdin = '', entryName }) {
   const start = performance.now()
   if (!code?.trim()) {
     return { success: false, stdout: '', stderr: 'error: empty source file — nothing to compile.', exitCode: 1, executionTime: 0, memory: 0, engine: 'judge0' }
   }
 
   try {
-    return await runProject({ language, code, files, stdin, start })
+    return await runProject({ language, code, files, stdin, start, entryName })
   } catch (error) {
     return {
       success: false,
