@@ -1,4 +1,4 @@
-import { Copy, Trash2, Loader2, CheckCircle2, XCircle, WifiOff, Info, RotateCcw } from 'lucide-react'
+import { Copy, Trash2, Loader2, CheckCircle2, XCircle, WifiOff, Info, RotateCcw, ChevronDown, ChevronUp } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useEditorStore } from '../../store/useEditorStore'
 
@@ -62,6 +62,8 @@ export default function OutputConsole() {
   const activeTab = useEditorStore((s) => s.activeConsoleTab)
   const setActiveTab = useEditorStore((s) => s.setActiveConsoleTab)
   const clearConsole = useEditorStore((s) => s.clearConsole)
+  const consoleOpen = useEditorStore((s) => s.consoleOpen)
+  const toggleConsole = useEditorStore((s) => s.toggleConsole)
 
   const clearInput = () => setInput('')
 
@@ -79,7 +81,7 @@ export default function OutputConsole() {
         {TABS.map((tab) => (
           <button
             key={tab.key}
-            onClick={() => setActiveTab(tab.key)}
+            onClick={() => { setActiveTab(tab.key); if (!consoleOpen) toggleConsole() }}
             className={`relative rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
               activeTab === tab.key
                 ? 'bg-panel-raised text-text'
@@ -106,6 +108,15 @@ export default function OutputConsole() {
           className="rounded p-1.5 text-text-muted hover:bg-panel-raised hover:text-text"
         >
           <Trash2 size={13} />
+        </button>
+        <button
+          onClick={toggleConsole}
+          title={consoleOpen ? 'Collapse console' : 'Expand console'}
+          aria-label={consoleOpen ? 'Collapse console' : 'Expand console'}
+          aria-expanded={consoleOpen}
+          className="rounded p-1.5 text-text-muted hover:bg-panel-raised hover:text-text"
+        >
+          {consoleOpen ? <ChevronDown size={15} /> : <ChevronUp size={15} />}
         </button>
       </div>
 

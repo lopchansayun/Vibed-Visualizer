@@ -1,3 +1,4 @@
+import { useRef, useState } from 'react'
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels'
 import { useEditorStore } from '../../store/useEditorStore'
 import { useMediaQuery } from '../../hooks/useMediaQuery'
@@ -13,11 +14,55 @@ const ResizeHandleV = () => (
   </PanelResizeHandle>
 )
 
-const ResizeHandleH = () => (
-  <PanelResizeHandle className="group relative h-1.5 shrink-0 bg-transparent">
-    <div className="my-auto h-px w-full bg-border transition-colors group-hover:bg-amber group-data-[resize-handle-state=drag]:bg-amber" />
-  </PanelResizeHandle>
-)
+// Height of the console header strip that stays visible while collapsed.
+const CONSOLE_COLLAPSED_PX = 42
+const CONSOLE_MIN_PX = 140
+
+function ConsoleDock({ open, className = '', style }) {
+  const [height, setHeight] = useState(240)
+  const [dragging, setDragging] = useState(false)
+  const dockRef = useRef(null)
+
+  const startDrag = (event) => {
+    if (!open) return
+    event.preventDefault()
+    const startY = event.clientY
+    const startHeight = height
+    const maxHeight = Math.max(CONSOLE_MIN_PX, (dockRef.current?.parentElement?.clientHeight || 600) - 160)
+    setDragging(true)
+    const onMove = (e) => setHeight(Math.min(maxHeight, Math.max(CONSOLE_MIN_PX, startHeight + (startY - e.clientY))))
+    const onUp = () => {
+      setDragging(false)
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+  }
+
+  return (
+    <div
+      ref={dockRef}
+      className={`flex shrink-0 flex-col ${className}`}
+      style={{
+        height: open ? height : CONSOLE_COLLAPSED_PX,
+        transition: dragging ? 'none' : 'height 260ms cubic-bezier(0.22, 1, 0.36, 1)',
+        ...style,
+      }}
+    >
+      <div
+        onPointerDown={startDrag}
+        style={{ touchAction: 'none' }}
+        className={`group relative h-1.5 shrink-0 ${open ? 'cursor-row-resize' : 'pointer-events-none'}`}
+      >
+        <div className="my-auto h-px w-full bg-border transition-colors group-hover:bg-amber" />
+      </div>
+      <div className="min-h-0 flex-1 overflow-hidden rounded-[var(--radius-panel)] border border-border-soft bg-panel">
+        <OutputConsole />
+      </div>
+    </div>
+  )
+}
 
 export default function Workspace({ onRun, onRunAndVisualize }) {
   const visualizerOpen = useEditorStore((s) => s.visualizerOpen && LANGUAGES[s.language]?.visualizable === true)
@@ -38,12 +83,6 @@ export default function Workspace({ onRun, onRunAndVisualize }) {
     </div>
   )
 
-  const consolePane = (
-    <div className="h-full min-h-0 overflow-hidden rounded-[var(--radius-panel)] border border-border-soft bg-panel">
-      <OutputConsole />
-    </div>
-  )
-
   if (!isDesktop) {
     return (
       <div className="relative min-h-0 flex-1 overflow-hidden p-2">
@@ -58,11 +97,10 @@ export default function Workspace({ onRun, onRunAndVisualize }) {
           </>
         )}
 
-        {consoleOpen && (
-          <div className="absolute inset-x-2 bottom-2 z-30 h-[42%] min-h-[220px] overflow-hidden rounded-[var(--radius-panel)] border border-border bg-panel shadow-2xl">
-            {consolePane}
-          </div>
-        )}
+        <ConsoleDock
+          open={consoleOpen}
+          className="absolute inset-x-2 bottom-2 z-30 rounded-[var(--radius-panel)] shadow-2xl"
+        />
 
         {visualizerOpen && (
           <div className="absolute inset-0 z-40 overflow-hidden bg-bg p-0">
@@ -87,19 +125,10 @@ export default function Workspace({ onRun, onRunAndVisualize }) {
           </>
         )}
         <Panel id="main" order={2} defaultSize={visualizerOpen ? 62 : 100} minSize={30}>
-          <PanelGroup direction="vertical">
-            <Panel defaultSize={consoleOpen ? 76 : 100} minSize={35}>
-              {editorPane}
-            </Panel>
-            {consoleOpen && (
-              <>
-                <ResizeHandleH />
-                <Panel defaultSize={24} minSize={14} maxSize={45}>
-                  {consolePane}
-                </Panel>
-              </>
-            )}
-          </PanelGroup>
+          <div className="flex h-full min-h-0 flex-col">
+            <div className="min-h-0 flex-1">{editorPane}</div>
+            <ConsoleDock open={consoleOpen} />
+          </div>
         </Panel>
 
         {visualizerOpen && (

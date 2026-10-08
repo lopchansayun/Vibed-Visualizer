@@ -1,5 +1,6 @@
 import { useRef, useEffect } from 'react'
-import { X } from 'lucide-react'
+import { X, CheckSquare, Copy, Trash2, ClipboardPaste, ListPlus, ListX } from 'lucide-react'
+import toast from 'react-hot-toast'
 import Editor from '@monaco-editor/react'
 import { useEditorStore } from '../../store/useEditorStore'
 import { LANGUAGES } from '../../config/languages'
@@ -54,6 +55,79 @@ export default function CodeEditor({ onRun, onRunAndVisualize }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentLine])
 
+  const withEditor = (callback) => {
+    const editor = editorRef.current
+    if (!editor) return
+    callback(editor, monacoRef.current)
+  }
+
+  const copyText = async (text) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      toast.success('Copied to clipboard')
+    } catch {
+      toast.error('Clipboard access was blocked by the browser.')
+    }
+  }
+
+  const selectAll = () => withEditor((editor) => editor.getAction('editor.action.selectAll')?.run())
+  const copyAll = () => withEditor(async (editor) => {
+    const model = editor.getModel()
+    editor.setSelection(model.getFullModelRange())
+    await copyText(editor.getValue())
+    editor.focus()
+  })
+  const deleteAll = () => withEditor((editor) => {
+    editor.executeEdits('mobile-delete-all', [{
+      range: editor.getModel().getFullModelRange(),
+      text: '',
+    }])
+  })
+  const selectCurrentLine = () => withEditor((editor, monaco) => {
+    const model = editor.getModel()
+    const line = editor.getPosition()?.lineNumber || 1
+    const lastLine = model.getLineCount()
+    const endColumn = model.getLineMaxColumn(line)
+    const endLine = line < lastLine ? line + 1 : line
+    const finalColumn = line < lastLine ? 1 : endColumn
+    editor.setSelection(new monaco.Selection(line, 1, endLine, finalColumn))
+    editor.focus()
+  })
+  const copyCurrentLine = () => withEditor(async (editor) => {
+    const model = editor.getModel()
+    const line = editor.getPosition()?.lineNumber || 1
+    await copyText(model.getLineContent(line))
+  })
+  const deleteCurrentLine = () => withEditor((editor) => {
+    const model = editor.getModel()
+    const line = editor.getPosition()?.lineNumber || 1
+    const lastLine = model.getLineCount()
+    const range = line < lastLine
+      ? new monacoRef.current.Range(line, 1, line + 1, 1)
+      : new monacoRef.current.Range(line, 1, line, model.getLineMaxColumn(line))
+    editor.executeEdits('mobile-delete-line', [{ range, text: '' }])
+  })
+  const pasteLine = async () => {
+    try {
+      const text = await navigator.clipboard.readText()
+      withEditor((editor) => {
+        const model = editor.getModel()
+        const line = editor.getPosition()?.lineNumber || 1
+        const eol = model.getEOL()
+        const endColumn = model.getLineMaxColumn(line)
+        // Insert a real line break after the current line.
+        editor.executeEdits('mobile-paste-line', [{
+          range: new monacoRef.current.Range(line, endColumn, line, endColumn),
+          text: `${eol}${text}`,
+        }])
+        editor.setPosition({ lineNumber: line + 1, column: 1 })
+        editor.focus()
+      })
+    } catch {
+      toast.error('Clipboard paste was blocked by the browser.')
+    }
+  }
+
   useEffect(() => {
     if (!editorRef.current || !monacoRef.current) return
     editorRef.current.updateOptions({
@@ -68,6 +142,16 @@ export default function CodeEditor({ onRun, onRunAndVisualize }) {
 
   return (
     <div className="flex h-full flex-col">
+      <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-border-soft bg-panel px-2 py-1 sm:hidden">
+        <button type="button" title="Select all" aria-label="Select all" onClick={selectAll} className="rounded p-2 text-text-muted hover:bg-bg-soft hover:text-text"><CheckSquare size={15} /></button>
+        <button type="button" title="Copy all" aria-label="Copy all" onClick={copyAll} className="rounded p-2 text-text-muted hover:bg-bg-soft hover:text-text"><Copy size={15} /></button>
+        <button type="button" title="Delete all" aria-label="Delete all" onClick={deleteAll} className="rounded p-2 text-text-muted hover:bg-bg-soft hover:text-text"><Trash2 size={15} /></button>
+        <span className="mx-0.5 h-5 w-px bg-border" />
+        <button type="button" title="Select line" aria-label="Select line" onClick={selectCurrentLine} className="rounded p-2 text-text-muted hover:bg-bg-soft hover:text-text"><ListPlus size={15} /></button>
+        <button type="button" title="Copy line" aria-label="Copy line" onClick={copyCurrentLine} className="rounded p-2 text-text-muted hover:bg-bg-soft hover:text-text"><Copy size={15} /></button>
+        <button type="button" title="Delete line" aria-label="Delete line" onClick={deleteCurrentLine} className="rounded p-2 text-text-muted hover:bg-bg-soft hover:text-text"><ListX size={15} /></button>
+        <button type="button" title="Paste line" aria-label="Paste line" onClick={pasteLine} className="rounded p-2 text-text-muted hover:bg-bg-soft hover:text-text"><ClipboardPaste size={15} /></button>
+      </div>
       <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-border-soft bg-panel px-2 py-1.5">
         {(tabs || [activeFile]).map((name) => (
           <button key={name} type="button" title={name} onClick={() => switchFile(name)} className={`group flex shrink-0 items-center gap-1.5 rounded px-2.5 py-1 text-xs font-mono-tight ${name === activeFile ? 'bg-bg-soft text-text' : 'text-text-muted hover:bg-bg-soft hover:text-text'}`}>

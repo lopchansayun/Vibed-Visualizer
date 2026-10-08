@@ -268,9 +268,11 @@ export const useEditorStore = create(
   }), {
     name: 'vibedvisualizer-editor-state',
     storage: createJSONStorage(() => localStorage),
-    version: 5,
+    version: 6,
     merge: (persisted, current) => {
       const merged = { ...current, ...(persisted || {}) }
+      // Keep persisted projects compatible after the supported-language list was reduced.
+      if (!LANGUAGES[merged.language]) merged.language = current.language
       // Backfill state added after older versions were saved.
       merged.folders = { ...current.folders, ...(persisted?.folders || {}) }
       merged.editorSettings = { ...current.editorSettings, ...(persisted?.editorSettings || {}) }

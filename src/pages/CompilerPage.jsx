@@ -8,6 +8,7 @@ import Header from '../components/layout/Header'
 import Workspace from '../components/layout/Workspace'
 import { baseName } from '../utils/paths'
 import { analyzeAndFixC, formatAnalyzerReport } from '../services/cCodeAnalyzer'
+import { codeNeedsInput } from '../services/inputDetection'
 
 export default function CompilerPage() {
   const runTokenRef = useRef(0)
@@ -17,6 +18,15 @@ export default function CompilerPage() {
     const { language, code, files, input, setStatus, setOutput, setActiveConsoleTab, setTrace } = useEditorStore.getState()
     // Always open the console when execution starts.
     useEditorStore.setState({ consoleOpen: true })
+    const needsInput = codeNeedsInput(language, code[language] || '')
+    if (needsInput) {
+      useEditorStore.setState({ consoleOpen: true, activeConsoleTab: 'input' })
+      if (!input.trim()) {
+        toast('Insert input before executing/running code', { icon: '⌨️' })
+        return
+      }
+    }
+
     const projectFiles = files[language] || []
     const entryName = LANGUAGES[language]?.fileName || 'main.c'
     const activeName = useEditorStore.getState().activeFile[language]

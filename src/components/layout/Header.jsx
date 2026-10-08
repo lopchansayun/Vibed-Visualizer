@@ -1,4 +1,4 @@
-import { Play, Square, GitBranch, RotateCcw, Sun, Moon, Braces, TerminalSquare, FileCode2, PanelLeft, Menu, X, Settings, ChevronDown, SearchCode } from 'lucide-react'
+import { Play, Square, GitBranch, RotateCcw, Sun, Moon, Braces, FileCode2, PanelLeft, Menu, X, Settings, ChevronDown, SearchCode } from 'lucide-react'
 import { useEditorStore } from '../../store/useEditorStore'
 import { LANGUAGES, LANGUAGE_ORDER } from '../../config/languages'
 import IconButton from '../ui/IconButton'
@@ -16,8 +16,6 @@ export default function Header({ onRun, onRunAndVisualize, onStop, onReset, onAn
   const setEditorSetting = useEditorStore((s) => s.setEditorSetting)
   const visualizerOpen = useEditorStore((s) => s.visualizerOpen)
   const toggleVisualizer = useEditorStore((s) => s.toggleVisualizer)
-  const consoleOpen = useEditorStore((s) => s.consoleOpen)
-  const toggleConsole = useEditorStore((s) => s.toggleConsole)
   const sidebarOpen = useEditorStore((s) => s.sidebarOpen)
   const toggleSidebar = useEditorStore((s) => s.toggleSidebar)
 
@@ -105,16 +103,6 @@ export default function Header({ onRun, onRunAndVisualize, onStop, onReset, onAn
           <span>Support</span>
         </Link>
 
-        <button
-          type="button"
-          onClick={toggleConsole}
-          aria-pressed={consoleOpen}
-          className="flex h-8 shrink-0 items-center gap-1 rounded-md border border-border px-2 text-[11px] font-medium text-text-muted hover:text-text sm:px-2.5 sm:text-xs"
-        >
-          <TerminalSquare size={13} />
-          <span>{consoleOpen ? 'Hide console' : 'Show console'}</span>
-        </button>
-
         {visualizationAvailable && (
           <button
             type="button"
@@ -182,16 +170,6 @@ export default function Header({ onRun, onRunAndVisualize, onStop, onReset, onAn
               <FileCode2 size={15} />
               Support
             </Link>
-
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => { toggleConsole(); setMobileMenuOpen(false) }}
-              className="flex h-9 w-full items-center gap-2 rounded-md px-2 text-left text-xs font-medium text-text-muted hover:bg-bg-soft hover:text-text"
-            >
-              <TerminalSquare size={15} />
-              {consoleOpen ? 'Hide console' : 'Show console'}
-            </button>
 
             {visualizationAvailable && (
               <button

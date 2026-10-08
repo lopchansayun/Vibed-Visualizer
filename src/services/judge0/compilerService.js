@@ -4,6 +4,20 @@ import { filesToZipBase64 } from '../../utils/archive'
 const JUDGE0_API_URL = (import.meta.env.VITE_JUDGE0_API_URL || 'https://ce.judge0.com').replace(/\/+$/, '')
 const JUDGE0_API_KEY = import.meta.env.VITE_JUDGE0_API_KEY || ''
 const MULTI_FILE_LANGUAGE_ID = 89
+
+// Judge0 CE TypeScript (74) is a TypeScript compiler/runtime, but its base
+// image does not necessarily ship @types/node. These declarations let normal
+// Node stdin code such as `import * as fs from 'fs'` compile while the emitted
+// JavaScript still runs with Node inside Judge0.
+const TYPESCRIPT_NODE_COMPAT = `declare module "fs" {
+  export function readFileSync(path: number | string, options?: string | { encoding?: string }): any;
+}
+declare module "readline" {
+  export function createInterface(options: any): any;
+}
+declare const process: any;
+declare function require(name: string): any;
+`
 const POLL_INTERVAL_MS = 250
 const MAX_POLLS = 60
 
@@ -135,13 +149,32 @@ async function runProject({ language, code, files, stdin, start, entryName }) {
     return submit({ language_id: MULTI_FILE_LANGUAGE_ID, stdin: utf8ToBase64(stdin), additional_files: additionalFiles }, start)
   }
 
-  const extraFiles = projectFiles.filter(file => file.name !== sourceName).map(file => ({ name: file.name, content: file.content }))
-  return submit({
+  let extraFiles = projectFiles
+    .filter(file => file.name !== sourceName)
+    .map(file => ({ name: file.name, content: file.content }))
+
+  const payload = {
     source_code: utf8ToBase64(code),
     language_id: definition.judge0Id,
     stdin: utf8ToBase64(stdin),
-    ...(extraFiles.length ? { additional_files: filesToZipBase64(extraFiles) } : {}),
-  }, start)
+  }
+
+  // TypeScript 3.7 (Judge0 ID 74) needs lightweight Node declarations for
+  // stdin APIs. The declaration file is compile-time only and does not alter
+  // the emitted Node.js program. Keep it alongside user project files.
+  if (language === 'typescript') {
+    extraFiles = [
+      ...extraFiles,
+      { name: '__codeviz_node_compat.d.ts', content: TYPESCRIPT_NODE_COMPAT },
+    ]
+    // Explicitly reference the declaration file because Judge0's TypeScript
+    // command may compile only the submitted .ts entry file.
+    payload.source_code = utf8ToBase64(`/// <reference path="./__codeviz_node_compat.d.ts" />\n${code}`)
+    payload.compiler_options = '--module commonjs --target es2019 --moduleResolution node --skipLibCheck'
+  }
+
+  if (extraFiles.length) payload.additional_files = filesToZipBase64(extraFiles)
+  return submit(payload, start)
 }
 
 export async function compileAndRun({ language, code, files = [], stdin = '', entryName }) {
